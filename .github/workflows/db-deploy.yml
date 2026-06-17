@@ -1,0 +1,208 @@
+name: Database Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_env:
+        description: "Target environment"
+        required: true
+        type: choice
+        options:
+          - dev
+          - prod
+      dry_run:
+        description: "Run as dry-run only"
+        required: true
+        type: boolean
+        default: true
+      skip_dev_gate:
+        description: "Skip prod dev gate when dev database connectivity is unavailable"
+        required: true
+        type: boolean
+        default: false
+      skip_dev_gate_reason:
+        description: "Required reason when skip_dev_gate is true"
+        required: false
+        type: string
+        default: ""
+
+env:
+  SUPABASE_CLI_VERSION: "2.98.2"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      target_env: ${{ steps.out.outputs.target_env }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run migration guardrails
+        run: npm run db:guard
+
+      - name: Protect production deploy source branch
+        if: inputs.target_env == 'prod'
+        run: |
+          if [ "${GITHUB_REF_NAME}" != "main" ]; then
+            echo "Production migrations can only run from main."
+            exit 1
+          fi
+
+      - name: Require reason when skipping production dev gate
+        if: inputs.target_env == 'prod' && inputs.skip_dev_gate
+        env:
+          SKIP_DEV_GATE_REASON: ${{ inputs.skip_dev_gate_reason }}
+        run: |
+          if [ -z "${SKIP_DEV_GATE_REASON}" ]; then
+            echo "skip_dev_gate_reason is required when skip_dev_gate is true."
+            exit 1
+          fi
+          echo "Production dev gate bypass requested: ${SKIP_DEV_GATE_REASON}"
+
+      - name: Set output
+        id: out
+        run: echo "target_env=${{ inputs.target_env }}" >> "$GITHUB_OUTPUT"
+
+  deploy-dev:
+    if: needs.validate.outputs.target_env == 'dev'
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v2
+        with:
+          version: ${{ env.SUPABASE_CLI_VERSION }}
+
+      - name: Resolve database connection
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: node scripts/db/resolve-supabase-db-url.mjs
+
+      - name: Hydrate external migration history
+        env:
+          PGSSLMODE: require
+          PGCONNECT_TIMEOUT: 30
+        run: node scripts/db/hydrate-remote-history-stubs.mjs
+
+      - name: Push migrations
+        env:
+          PGSSLMODE: require
+          PGCONNECT_TIMEOUT: 30
+          SUPABASE_DB_PUSH_DRY_RUN: ${{ inputs.dry_run }}
+        run: node scripts/db/push-migrations-with-retry.mjs
+
+  prod-dev-gate:
+    if: needs.validate.outputs.target_env == 'prod' && !inputs.skip_dev_gate
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: dev
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v2
+        with:
+          version: ${{ env.SUPABASE_CLI_VERSION }}
+
+      - name: Resolve dev database connection
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: node scripts/db/resolve-supabase-db-url.mjs
+
+      - name: Hydrate external migration history
+        env:
+          PGSSLMODE: require
+          PGCONNECT_TIMEOUT: 30
+        run: node scripts/db/hydrate-remote-history-stubs.mjs
+
+      - name: Apply on dev as production gate
+        env:
+          PGSSLMODE: require
+          PGCONNECT_TIMEOUT: 30
+          SUPABASE_DB_PUSH_DRY_RUN: ${{ inputs.dry_run }}
+        run: node scripts/db/push-migrations-with-retry.mjs
+
+  deploy-prod:
+    if: always() && needs.validate.outputs.target_env == 'prod' && (inputs.skip_dev_gate || needs.prod-dev-gate.result == 'success')
+    needs:
+      - validate
+      - prod-dev-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: prod
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v2
+        with:
+          version: ${{ env.SUPABASE_CLI_VERSION }}
+
+      - name: Record skipped production dev gate
+        if: inputs.skip_dev_gate
+        env:
+          SKIP_DEV_GATE_REASON: ${{ inputs.skip_dev_gate_reason }}
+        run: |
+          echo "::warning::Production dev gate was skipped."
+          echo "Reason: ${SKIP_DEV_GATE_REASON}"
+
+      - name: Resolve production database connection
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: node scripts/db/resolve-supabase-db-url.mjs
+
+      - name: Hydrate external migration history
+        env:
+          PGSSLMODE: require
+          PGCONNECT_TIMEOUT: 30
+        run: node scripts/db/hydrate-remote-history-stubs.mjs
+
+      - name: Push migrations to production
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          PGSSLMODE: require
+          PGCONNECT_TIMEOUT: 30
+          SUPABASE_DB_PUSH_DRY_RUN: ${{ inputs.dry_run }}
+        run: node scripts/db/push-migrations-with-retry.mjs

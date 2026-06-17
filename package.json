@@ -13,7 +13,9 @@
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "db:guard": "node scripts/db/guard-migrations.mjs",
+    "db:guard:history": "node scripts/db/guard-history.mjs"
   },
   "dependencies": {
     "fastify": "^5.6.1"
