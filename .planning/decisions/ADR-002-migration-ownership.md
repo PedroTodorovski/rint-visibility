@@ -25,9 +25,10 @@ Future sellable modules follow the same rule: **migrations live with the engine 
 
 ## Consequences
 
-- GitHub environment secrets for Supabase deploy move to **`rint-visibility`** (or stay in org-level secrets referenced by both — prefer visibility repo environments).
+- GitHub environment secrets for Supabase deploy live on **`rint-visibility`** only (`dev` / `prod`). Remove legacy copies from `rint-admin`.
 - `mvp-schema` and all Phase 1 SQL slices execute in **`rint-visibility`**.
 - `rint-admin` docs must not instruct authors to add files under `supabase/migrations/`.
+- Default branch on `rint-visibility` must stay **`main`** so **Database Deploy** appears in Actions.
 
 ## Alternatives rejected
 

@@ -55,14 +55,22 @@ Database GitHub Actions must stay on runtime versions that GitHub currently supp
 
 ## GitHub Environment Contract
 
-Configure these protected environments in GitHub: `dev` and `prod`.
+**Repository:** `PedroTodorovski/rint-visibility` only (ADR-002). Do not configure Supabase deploy secrets on `rint-admin`.
+
+Configure protected environments: `dev` and `prod` (`Settings → Environments`).
+
+**Default branch must be `main`.** `workflow_dispatch` workflows (Database Deploy) are registered from the default branch; if the repo default is another branch, the workflow will not appear in Actions.
 
 Each environment must define:
 
-- `SUPABASE_ACCESS_TOKEN`
-- `SUPABASE_PROJECT_REF`
-- `SUPABASE_DB_PASSWORD`
-- `SUPABASE_DB_URL` (required for `prod` direct deploy; optional but recommended for `dev` and the production dev gate)
+| Secret | Required | Notes |
+|--------|----------|-------|
+| `SUPABASE_ACCESS_TOKEN` | Yes | [Account tokens](https://supabase.com/dashboard/account/tokens) |
+| `SUPABASE_PROJECT_REF` | Yes | Project ref from dashboard URL (`supabase.com/project/XXXX`) |
+| `SUPABASE_DB_PASSWORD` | Yes | **Database password** from Project Settings → Database — not anon/service_role |
+| `SUPABASE_DB_URL` | Optional | Omit for `dev` (recommended); CI resolves Session pooler via Management API |
+
+When copying secrets between repos, re-type `SUPABASE_DB_PASSWORD` manually. Paste/placeholder errors show as `password authentication failed (28P01)` or `postgres.[SEU-PROJECT-REF] not found`.
 
 `dev` and the production dev gate resolve a migration-safe database URL before running `supabase db push`. If `SUPABASE_DB_URL` is set, it must be either the Session pooler URL on port 5432 or a direct database URL. Direct `db.*.supabase.co` URLs are auto-upgraded to the Session pooler via the Supabase Management API because GitHub Actions cannot reach IPv6-only direct hosts. When the API returns only transaction pooler metadata (port 6543), the resolver uses the same pooler host on port 5432 (Session mode). Transaction pooler URLs on port 6543 are rewritten to port 5432 automatically.
 
