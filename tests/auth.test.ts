@@ -94,11 +94,31 @@ describe("Bearer auth on /v1", () => {
 describe("assertRuntimeConfig", () => {
   it("throws in production when VISIBILITY_API_KEY is missing", () => {
     expect(() =>
-      assertRuntimeConfig(loadConfig({ NODE_ENV: "production", VISIBILITY_API_KEY: "" })),
+      assertRuntimeConfig(
+        loadConfig({
+          NODE_ENV: "production",
+          VISIBILITY_API_KEY: "",
+          SUPABASE_URL: "https://example.supabase.co",
+          SUPABASE_SERVICE_ROLE_KEY: "service-role",
+        }),
+      ),
     ).toThrow(/VISIBILITY_API_KEY is required/);
   });
 
-  it("allows missing key outside production", () => {
+  it("throws in production when Supabase credentials are missing", () => {
+    expect(() =>
+      assertRuntimeConfig(
+        loadConfig({
+          NODE_ENV: "production",
+          VISIBILITY_API_KEY: "secret",
+          SUPABASE_URL: "",
+          SUPABASE_SERVICE_ROLE_KEY: "",
+        }),
+      ),
+    ).toThrow(/SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required/);
+  });
+
+  it("allows missing credentials outside production", () => {
     expect(() =>
       assertRuntimeConfig(loadConfig({ NODE_ENV: "development", VISIBILITY_API_KEY: "" })),
     ).not.toThrow();

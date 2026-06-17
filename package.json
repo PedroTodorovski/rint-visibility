@@ -18,6 +18,7 @@
     "db:guard:history": "node scripts/db/guard-history.mjs"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.108.2",
     "fastify": "^5.6.1"
   },
   "devDependencies": {
