@@ -1,0 +1,8 @@
+# Supabase rint schema — owned by this engine repo.
+
+* @PedroTodorovski
+
+supabase/migrations/** @PedroTodorovski
+scripts/db/** @PedroTodorovski
+.github/workflows/db-*.yml @PedroTodorovski
+docs/database/** @PedroTodorovski

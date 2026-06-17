@@ -5,6 +5,13 @@ Rint v1 **engine API** — weekly AI visibility probes (ChatGPT + Gemini), score
 - **Stack:** Fastify 5, TypeScript, Supabase (`rint` schema)
 - **Deploy:** Railway (separate project)
 - **No UI** — consumed by [`rint-admin`](https://github.com/PedroTodorovski/rint-admin)
+- **Migrations SSOT** — `supabase/migrations/` in **this repo** (ADR-002)
+
+## Database
+
+- Governance: `docs/database/GOVERNANCE.md`
+- Deploy: GitHub Actions → **Database Deploy** (environments `dev` / `prod` on **this repo**)
+- Verify: `npm run db:guard && npm test`
 
 ## Quick start
 

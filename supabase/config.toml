@@ -1,0 +1,12 @@
+project_id = "rint-admin"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public", "rint"]
+extra_search_path = ["public", "extensions", "rint"]
+max_rows = 1000
+
+[db]
+port = 54322
+major_version = 17

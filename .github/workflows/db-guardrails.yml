@@ -1,0 +1,46 @@
+name: Database Guardrails
+
+on:
+  pull_request:
+    paths:
+      - "supabase/migrations/**"
+      - "scripts/db/**"
+      - "docs/database/**"
+      - ".github/workflows/db-*.yml"
+      - "CODEOWNERS"
+  push:
+    branches:
+      - main
+    paths:
+      - "supabase/migrations/**"
+      - "scripts/db/**"
+
+jobs:
+  migration-guard:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate migration safety
+        run: npm run db:guard
+
+      - name: Prevent historical migration edits in PRs
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: origin/${{ github.base_ref }}
+        run: |
+          git fetch origin "${{ github.base_ref }}"
+          npm run db:guard:history

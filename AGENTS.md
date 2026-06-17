@@ -2,34 +2,41 @@
 
 Engine-only microservice for Rint v1 AI visibility (probes, scores, catalog fixes).
 
-## Stack
+## Owns
 
-- Fastify 5, TypeScript, Node 22+
-- Supabase `rint` schema (migrations in **rint-admin** only)
-- Railway deploy (separate project from other Rint modules)
+- Supabase **`rint` schema** — `supabase/migrations/`, `scripts/db/`, `Database Deploy` CI
+- Fastify API (Railway, separate project)
+
+## Does not own
+
+- Admin UI → **`rint-admin`**
+- D1 auth/billing/CMS → **`rint-admin`**
+- SQL migrations for product data in any other repo
 
 ## Read first
 
 | Task | Doc |
 |------|-----|
 | Product SSOT | `../rint-admin/.planning/PROJECT.md` |
-| Session state | `../rint-admin/.planning/STATE.md` |
+| Phase 1 plan | `../rint-admin/.planning/phases/01-mvp-v1/PLAN.md` |
+| Migration ownership ADR | `.planning/decisions/ADR-002-migration-ownership.md` |
+| DB governance | `docs/database/GOVERNANCE.md` |
 | Harness | `../rint-admin/docs/harness/README.md` |
-| DB governance | `../rint-admin/docs/database/GOVERNANCE.md` |
 
 ## Rules
 
 - **No UI** — JSON API only
-- **No SQL migrations here** — author in `rint-admin/supabase/migrations/`
-- **No production DB writes from local** — deploy via rint-admin GitHub Actions
-- GitHub account: **PedroTodorovski** (not PedroTodorovskiNowle)
+- **All `rint.*` SQL here** — never in rint-admin
+- **No production DB writes from local** — deploy via GitHub Actions `Database Deploy`
+- GitHub: **PedroTodorovski**
 
 ## Verify before handoff
 
 ```bash
 npm run typecheck && npm test
+npm run db:guard   # if migrations changed
 ```
 
 ## Port
 
-Default local: `3010`. Railway sets `PORT` automatically.
+Default local: `3010`. Railway sets `PORT`.
