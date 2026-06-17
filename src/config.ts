@@ -20,3 +20,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     apiKey: env.VISIBILITY_API_KEY?.trim() || null,
   };
 }
+
+export function assertRuntimeConfig(config: AppConfig): void {
+  if (config.nodeEnv === "production" && !config.apiKey) {
+    throw new Error("VISIBILITY_API_KEY is required when NODE_ENV=production");
+  }
+}
