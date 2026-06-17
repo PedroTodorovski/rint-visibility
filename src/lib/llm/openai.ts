@@ -1,4 +1,5 @@
 import type { AppConfig } from "../../config.js";
+import { probeBatchSequential } from "./batch-probe.js";
 import type { LlmClient, LlmProbeResult } from "./types.js";
 
 const DEFAULT_MODEL = "gpt-4o-mini";
@@ -6,7 +7,7 @@ const DEFAULT_MODEL = "gpt-4o-mini";
 export function createOpenAiClient(config: AppConfig): LlmClient {
   const apiKey = config.openAiApiKey;
 
-  return {
+  const client: LlmClient = {
     async probe(prompt: string): Promise<LlmProbeResult> {
       if (!apiKey) {
         return { text: "", model: "mock", mocked: true };
@@ -43,5 +44,11 @@ export function createOpenAiClient(config: AppConfig): LlmClient {
         return { text: "", model: "mock", mocked: true };
       }
     },
+
+    async probeBatch(items) {
+      return probeBatchSequential((text) => client.probe(text), items);
+    },
   };
+
+  return client;
 }

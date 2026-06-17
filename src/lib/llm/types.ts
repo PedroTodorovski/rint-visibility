@@ -6,8 +6,15 @@ export type LlmProbeResult = {
   mocked: boolean;
 };
 
+export type LlmBatchProbeResult = {
+  responses: Array<{ index: number; text: string }>;
+  model: string;
+  mocked: boolean;
+};
+
 export type LlmClient = {
   probe(prompt: string): Promise<LlmProbeResult>;
+  probeBatch(items: Array<{ index: number; text: string }>): Promise<LlmBatchProbeResult>;
 };
 
 export type LlmClients = {

@@ -12,4 +12,4 @@ export function createLlmClients(config: AppConfig): LlmClients {
   };
 }
 
-export type { LlmClient, LlmClients, LlmProbeResult, LlmProvider } from "./types.js";
+export type { LlmBatchProbeResult, LlmClient, LlmClients, LlmProbeResult, LlmProvider } from "./types.js";

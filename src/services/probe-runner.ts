@@ -114,36 +114,53 @@ async function executeProbes(
   const productUrls = products.map((p) => p.url);
   const ctx = { storeName: store.name, domain: store.domain, productUrls };
 
-  const slots = prompts.flatMap((prompt) =>
-    PROVIDERS.map((provider) => ({ prompt, provider })),
+  const sorted = [...prompts].sort(
+    (a, b) => a.sort_order - b.sort_order || a.created_at.localeCompare(b.created_at),
   );
 
-  return Promise.all(
-    slots.map(async ({ prompt, provider }, index) => {
-      const client = llm[provider];
-      let probe = await client.probe(prompt.prompt_text);
+  const results: ProbeResultDraft[] = [];
 
-      if (probe.mocked || !probe.text) {
+  for (const provider of PROVIDERS) {
+    const items = sorted.map((prompt, index) => ({
+      index: index + 1,
+      text: prompt.prompt_text,
+    }));
+
+    const batch = await llm[provider].probeBatch(items);
+    const answerByIndex = new Map(batch.responses.map((row) => [row.index, row.text]));
+
+    for (let i = 0; i < sorted.length; i++) {
+      const prompt = sorted[i]!;
+      const index = i + 1;
+      let text = answerByIndex.get(index) ?? "";
+      let mocked = batch.mocked;
+      let model = batch.model;
+
+      if (mocked || !text) {
         const cited = index % 3 !== 0;
-        probe = { text: mockResponse(store, cited), model: "mock", mocked: true };
+        text = mockResponse(store, cited);
+        mocked = true;
+        model = "mock";
       }
 
-      const citation = detectCitation(probe.text, ctx);
+      const citation = detectCitation(text, ctx);
 
-      return {
+      results.push({
         prompt_id: prompt.id,
         provider,
         cited: citation.cited,
-        response_excerpt: citation.excerpt || probe.text.slice(0, 200),
+        response_excerpt: citation.excerpt || text.slice(0, 200),
         metadata: {
           match_signals: citation.matchSignals,
           matched_url: citation.matchedUrl,
-          provider_model: probe.model,
-          mocked: probe.mocked,
+          provider_model: model,
+          mocked,
         },
-      };
-    }),
-  );
+      });
+    }
+  }
+
+  return results;
 }
 
 function buildFailedSlots(prompts: PromptRow[], results: ProbeResultDraft[]) {
