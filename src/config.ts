@@ -4,6 +4,8 @@ export type AppConfig = {
   nodeEnv: string;
   serviceName: string;
   apiKey: string | null;
+  supabaseUrl: string | null;
+  supabaseServiceRoleKey: string | null;
 };
 
 function readPort(value: string | undefined, fallback: number): number {
@@ -18,11 +20,25 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     nodeEnv: env.NODE_ENV ?? "development",
     serviceName: "rint-visibility",
     apiKey: env.VISIBILITY_API_KEY?.trim() || null,
+    supabaseUrl: env.SUPABASE_URL?.trim() || null,
+    supabaseServiceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY?.trim() || null,
   };
 }
 
+export function hasSupabaseConfig(config: AppConfig): boolean {
+  return Boolean(config.supabaseUrl && config.supabaseServiceRoleKey);
+}
+
 export function assertRuntimeConfig(config: AppConfig): void {
-  if (config.nodeEnv === "production" && !config.apiKey) {
+  if (config.nodeEnv !== "production") {
+    return;
+  }
+
+  if (!config.apiKey) {
     throw new Error("VISIBILITY_API_KEY is required when NODE_ENV=production");
+  }
+
+  if (!hasSupabaseConfig(config)) {
+    throw new Error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required when NODE_ENV=production");
   }
 }
