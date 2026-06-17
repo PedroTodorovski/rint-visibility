@@ -83,16 +83,20 @@ Each migration PR must include:
 
 AI agents may:
 
-- generate migration SQL files
+- generate migration SQL files in `supabase/migrations/`
 - generate docs and runbooks
-- run static checks and tests
+- run static checks and tests (`npm run db:guard`, `npm run typecheck`, `npm run test`)
 
 AI agents may not:
 
-- execute production migrations
+- **apply** migrations (no `supabase db push`, no Supabase Management API `database/query`, no `psql` against dev/prod)
+- **trigger** GitHub Actions **Database Deploy** (or any workflow that applies SQL to Supabase)
+- execute production migrations from a local machine
 - bypass branch protection or required approvals
 - perform manual production data edits
 - disable CI guardrails
+
+**Only Pedro** runs **Database Deploy** on this repository (`dev` then `prod`, with `dry_run=true` before real apply). After an agent adds a migration file, hand off with: merge PR → Pedro runs the workflow.
 
 ## Ownership
 

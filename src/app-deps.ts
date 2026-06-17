@@ -5,6 +5,9 @@ import { hasSupabaseConfig } from "./config.js";
 import { createRepositories, type VisibilityRepositories } from "./repositories/index.js";
 import { registerProductRoutes } from "./routes/v1/products.js";
 import { registerPromptRoutes } from "./routes/v1/prompts.js";
+import { registerProbeRoutes } from "./routes/v1/probes.js";
+import { registerResultRoutes } from "./routes/v1/results.js";
+import { registerScoreRoutes } from "./routes/v1/scores.js";
 import { registerStoreRoutes } from "./routes/v1/stores.js";
 
 export type BuildAppDeps = {
@@ -24,6 +27,7 @@ async function registerUnconfiguredCrudRoutes(app: FastifyInstance): Promise<voi
 
   app.get("/stores", respond);
   app.put("/stores", respond);
+  app.delete("/stores", respond);
   app.get("/products", respond);
   app.post("/products", respond);
   app.patch("/products/:productId", respond);
@@ -32,6 +36,9 @@ async function registerUnconfiguredCrudRoutes(app: FastifyInstance): Promise<voi
   app.post("/prompts", respond);
   app.patch("/prompts/:promptId", respond);
   app.delete("/prompts/:promptId", respond);
+  app.post("/probes/run", respond);
+  app.get("/scores/latest", respond);
+  app.get("/results", respond);
 }
 
 export function resolveRepositories(
@@ -64,4 +71,7 @@ export async function registerCrudRoutes(
   await registerStoreRoutes(app, repositories);
   await registerProductRoutes(app, repositories);
   await registerPromptRoutes(app, repositories);
+  await registerProbeRoutes(app, repositories, config);
+  await registerScoreRoutes(app, repositories);
+  await registerResultRoutes(app, repositories);
 }

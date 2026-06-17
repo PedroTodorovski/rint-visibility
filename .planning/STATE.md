@@ -12,7 +12,7 @@ Engine API for Rint v1 AI visibility. **Owns Supabase `rint` schema** (migration
 
 ## Current slice
 
-`visibility-probe-runner` — weekly ChatGPT/Gemini probe batch
+`visibility-probe-runner` ✓ · `visibility-scoring` ✓ — engine complete; admin wire-up in progress
 
 ## Completed
 
@@ -20,12 +20,12 @@ Engine API for Rint v1 AI visibility. **Owns Supabase `rint` schema** (migration
 - `mvp-schema` ✓ — stores, products, prompts, probe_runs, results, weekly_scores + RLS (PR #2, dev deployed)
 - `visibility-api-auth` ✓ — Bearer middleware on `/v1`, smoke `GET /v1/status` (PR #3)
 - `visibility-api-crud` ✓ — stores/products/prompts CRUD under `/v1` (PR #4)
+- `visibility-probe-runner` ✓ — POST `/v1/probes/run`, ChatGPT + Gemini, citation detection
+- `visibility-scoring` ✓ — weekly_scores aggregation, catalog fixes, GET `/v1/scores/latest`, GET `/v1/results`
 
 ## Next (Phase 1)
 
-1. `visibility-probe-runner` — **now**
-2. `visibility-scoring`
-3. `admin-visibility-shell` — rint-admin proxy + page
+1. `admin-visibility-shell` — rint-admin history page + wire client ✓ (in progress)
 4. … see `../rint-admin/.planning/phases/01-mvp-v1/PLAN.md`
 
 ## Verify

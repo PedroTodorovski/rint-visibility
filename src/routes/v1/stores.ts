@@ -56,4 +56,11 @@ export async function registerStoreRoutes(
 
     return reply.code(200).send({ store });
   });
+
+  app.delete("/stores", async (request, reply) => {
+    const workspaceId = requireWorkspaceId(request);
+    await repos.stores.deleteByWorkspaceId(workspaceId);
+
+    return reply.code(204).send();
+  });
 }

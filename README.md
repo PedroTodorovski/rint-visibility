@@ -3,7 +3,7 @@
 Rint v1 **engine API** — weekly AI visibility probes (ChatGPT + Gemini), score, catalog fixes.
 
 - **Stack:** Fastify 5, TypeScript, Supabase (`rint` schema)
-- **Deploy:** Railway — `https://visibility.rint.io` (see `docs/DEPLOYMENT.md`)
+- **Deploy:** Railway — `https://api.rint.io` (see `docs/DEPLOYMENT.md`)
 - **No UI** — consumed by [`rint-admin`](https://github.com/PedroTodorovski/rint-admin)
 - **Migrations SSOT** — `supabase/migrations/` in **this repo** (ADR-002)
 

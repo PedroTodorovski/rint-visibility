@@ -67,3 +67,56 @@ export type UpdatePromptInput = {
 
 export const MAX_PRODUCTS_PER_STORE = 3;
 export const MAX_PROMPTS_PER_STORE = 10;
+
+export type ProbeRunStatus = "pending" | "running" | "completed" | "failed";
+
+export type ProbeRunRow = {
+  id: string;
+  store_id: string;
+  status: ProbeRunStatus;
+  scheduled_for: string;
+  started_at: string | null;
+  completed_at: string | null;
+  error_message: string | null;
+  created_at: string;
+};
+
+export type ResultProvider = "chatgpt" | "gemini";
+
+export type ResultRow = {
+  id: string;
+  probe_run_id: string;
+  prompt_id: string;
+  provider: ResultProvider;
+  cited: boolean;
+  response_excerpt: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+};
+
+export type CatalogFix = {
+  type: "title" | "description" | "schema" | string;
+  product_url?: string;
+  product_title?: string;
+  suggestion: string;
+  reason?: string;
+};
+
+export type WeeklyScoreRow = {
+  id: string;
+  store_id: string;
+  probe_run_id: string | null;
+  week_start: string;
+  prompts_total: number;
+  citation_slots_total: number;
+  citations_count: number;
+  score_pct: number;
+  fixes: CatalogFix[];
+  created_at: string;
+};
+
+export type ResultWithPrompt = ResultRow & {
+  prompt_text: string;
+  probe_completed_at: string | null;
+};
+

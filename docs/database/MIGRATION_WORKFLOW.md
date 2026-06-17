@@ -24,9 +24,11 @@ This workflow is mandatory for all Rint v1 schema and policy changes.
 4. Required reviews (CODEOWNERS + feature reviewer).
 5. CI must pass migration guardrails.
 6. Merge to `main`.
-7. Deploy pipeline applies migrations:
+7. **Pedro** applies migrations via GitHub Actions **Database Deploy** on **this repo**:
    - first on `dev`
    - then on `prod` after approval
+
+> **Agents:** author SQL and open PRs only. Do not trigger **Database Deploy** or run `supabase db push` / remote SQL. See `docs/database/GOVERNANCE.md` (AI-Specific Rules).
 
 ## Workflow Runtime
 
