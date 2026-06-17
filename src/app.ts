@@ -1,7 +1,9 @@
 import Fastify from "fastify";
 
 import type { AppConfig } from "./config.js";
+import { registerBearerAuth } from "./plugins/bearer-auth.js";
 import { registerHealthRoute } from "./routes/health.js";
+import { registerV1StatusRoute } from "./routes/v1/status.js";
 
 export async function buildApp(config: AppConfig) {
   const app = Fastify({
@@ -12,11 +14,18 @@ export async function buildApp(config: AppConfig) {
 
   await registerHealthRoute(app, config);
 
-  // v1 API routes (stores, probes, scores) will mount under /v1 with Bearer auth.
   app.get("/", async () => ({
     service: config.serviceName,
     docs: "Engine-only microservice — no UI. See README.md.",
   }));
+
+  await app.register(
+    async (v1) => {
+      await registerBearerAuth(v1, config);
+      await registerV1StatusRoute(v1, config);
+    },
+    { prefix: "/v1" },
+  );
 
   return app;
 }

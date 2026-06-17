@@ -12,20 +12,18 @@ Engine API for Rint v1 AI visibility. **Owns Supabase `rint` schema** (migration
 
 ## Current slice
 
-`mvp-schema` — migration ready on `feat/mvp-schema` (deploy after merge)
+`visibility-api-auth` — on `feat/visibility-api-auth` (PR pending)
 
 ## Completed
 
 - `db-ownership` ✓ — Supabase CI migrated from rint-admin (ADR-002, PR #1)
-- Default branch set to `main` (required for Database Deploy in Actions UI)
-- Railway + `visibility.rint.io` + `VISIBILITY_API_KEY`
-- `.env.local` with Supabase dev credentials
+- `mvp-schema` ✓ — stores, products, prompts, probe_runs, results, weekly_scores + RLS (PR #2, dev deployed)
 
 ## Next (Phase 1)
 
-1. `mvp-schema` — **now**
-2. `visibility-api-auth`
-3. `visibility-api-crud`
+1. `visibility-api-auth` — **now** (Bearer middleware + `/v1/status` smoke)
+2. `visibility-api-crud`
+3. weekly probe runner
 4. … see `../rint-admin/.planning/phases/01-mvp-v1/PLAN.md`
 
 ## Verify
