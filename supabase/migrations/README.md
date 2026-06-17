@@ -1,5 +1,7 @@
 # Supabase Migrations
 
+**Owner repo:** `rint-visibility` (ADR-002). Admin and other Rint repos must not duplicate this folder.
+
 This directory is the source of truth for Rint v1 product schema evolution.
 
 ## Rules

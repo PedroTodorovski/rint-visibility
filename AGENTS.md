@@ -21,6 +21,7 @@ Engine-only microservice for Rint v1 AI visibility (probes, scores, catalog fixe
 | Phase 1 plan | `../rint-admin/.planning/phases/01-mvp-v1/PLAN.md` |
 | Migration ownership ADR | `.planning/decisions/ADR-002-migration-ownership.md` |
 | DB governance | `docs/database/GOVERNANCE.md` |
+| Deploy secrets + git | `../rint-admin/docs/harness/GIT-WORKFLOW.md` |
 | Harness | `../rint-admin/docs/harness/README.md` |
 
 ## Rules

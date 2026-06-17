@@ -1,5 +1,7 @@
 # Database Checklists
 
+**Repo:** `rint-visibility` only. Do not run these checklists for Supabase work in `rint-admin`.
+
 ## Pre-Flight Checklist (Local)
 
 - [ ] Changes are only in `supabase/migrations/` for schema evolution.
@@ -28,8 +30,9 @@
 
 ## Gate Checklist (Dev Before Prod)
 
-- [ ] Migrations applied in `dev` through official pipeline.
-- [ ] `Database Deploy` on `dev` passed with `dry_run=true` before `dry_run=false`.
+- [ ] Migrations applied in `dev` via **Database Deploy** on **this repo**.
+- [ ] `Database Deploy` (`target_env=dev`) passed with `dry_run=true` before `dry_run=false`.
+- [ ] Secrets live on **rint-visibility** GitHub environment `dev` (not rint-admin).
 - [ ] Smoke checks executed for impacted modules.
 - [ ] Data integrity spot-check executed.
 - [ ] Evidence linked in PR/ticket.
@@ -41,7 +44,7 @@
 - [ ] Deploy window validated and owner/on-call aware.
 - [ ] Production deploy source is `main`.
 - [ ] Protected environment approval for `prod` is in place.
-- [ ] `prod` GitHub environment has direct `SUPABASE_DB_URL`, `SUPABASE_ACCESS_TOKEN`, and `SUPABASE_PROJECT_REF`.
+- [ ] `prod` GitHub environment on **rint-visibility** has `SUPABASE_ACCESS_TOKEN`, `SUPABASE_PROJECT_REF`, and `SUPABASE_DB_PASSWORD` (optional `SUPABASE_DB_URL`).
 - [ ] Production dry-run pending migration list was reviewed before approval.
 
 ## Deploy Prod Checklist (Pipeline)
