@@ -1,10 +1,11 @@
 import type { AppConfig } from "../../config.js";
 import type { LlmClient, LlmProbeResult } from "./types.js";
 
-const DEFAULT_MODEL = "gpt-4o-mini";
+const DEFAULT_MODEL = "claude-haiku-4-5-20251001";
 
-export function createOpenAiClient(config: AppConfig): LlmClient {
-  const apiKey = config.openAiApiKey;
+export function createClaudeClient(config: AppConfig): LlmClient {
+  const apiKey = config.anthropicApiKey;
+  const model = config.anthropicModel ?? DEFAULT_MODEL;
 
   return {
     async probe(prompt: string): Promise<LlmProbeResult> {
@@ -13,17 +14,17 @@ export function createOpenAiClient(config: AppConfig): LlmClient {
       }
 
       try {
-        const res = await fetch("https://api.openai.com/v1/chat/completions", {
+        const res = await fetch("https://api.anthropic.com/v1/messages", {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${apiKey}`,
             "Content-Type": "application/json",
+            "x-api-key": apiKey,
+            "anthropic-version": "2023-06-01",
           },
           body: JSON.stringify({
-            model: config.openAiModel ?? DEFAULT_MODEL,
-            messages: [{ role: "user", content: prompt }],
+            model,
             max_tokens: 1024,
-            temperature: 0.7,
+            messages: [{ role: "user", content: prompt }],
           }),
           signal: AbortSignal.timeout(60_000),
         });
@@ -33,12 +34,13 @@ export function createOpenAiClient(config: AppConfig): LlmClient {
         }
 
         const data = (await res.json()) as {
-          choices?: Array<{ message?: { content?: string } }>;
+          content?: Array<{ type: string; text?: string }>;
           model?: string;
         };
 
-        const text = data.choices?.[0]?.message?.content?.trim() ?? "";
-        return { text, model: data.model ?? config.openAiModel ?? DEFAULT_MODEL, mocked: false };
+        const text =
+          data.content?.find((block) => block.type === "text")?.text?.trim() ?? "";
+        return { text, model: data.model ?? model, mocked: false };
       } catch {
         return { text: "", model: "mock", mocked: true };
       }

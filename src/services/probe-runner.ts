@@ -4,7 +4,7 @@ import type { VisibilityRepositories } from "../repositories/index.js";
 import type { ProductRow, PromptRow, StoreRow } from "../repositories/types.js";
 import { aggregateScore, generateCatalogFixes, weekStartUtc } from "./scoring.js";
 
-const PROVIDERS: LlmProvider[] = ["chatgpt", "gemini"];
+const PROVIDERS: LlmProvider[] = ["claude"];
 
 function mockResponse(store: StoreRow, cited: boolean): string {
   if (!cited) {
@@ -60,6 +60,7 @@ export async function runProbeForWorkspace(
     const { citationSlotsTotal, citationsCount, scorePct, promptsTotal } = aggregateScore(
       results,
       activePrompts.length,
+      PROVIDERS.length,
     );
 
     const failedSlots = buildFailedSlots(activePrompts, results);
@@ -98,7 +99,7 @@ export async function runProbeForWorkspace(
 
 type ProbeResultDraft = {
   prompt_id: string;
-  provider: "chatgpt" | "gemini";
+  provider: LlmProvider;
   cited: boolean;
   response_excerpt: string | null;
   metadata: Record<string, unknown>;

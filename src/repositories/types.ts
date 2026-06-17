@@ -81,7 +81,7 @@ export type ProbeRunRow = {
   created_at: string;
 };
 
-export type ResultProvider = "chatgpt" | "gemini";
+export type ResultProvider = "claude" | "chatgpt" | "gemini";
 
 export type ResultRow = {
   id: string;

@@ -1,4 +1,4 @@
-export type LlmProvider = "chatgpt" | "gemini";
+export type LlmProvider = "claude" | "chatgpt" | "gemini";
 
 export type LlmProbeResult = {
   text: string;
@@ -11,6 +11,7 @@ export type LlmClient = {
 };
 
 export type LlmClients = {
+  claude: LlmClient;
   chatgpt: LlmClient;
   gemini: LlmClient;
 };

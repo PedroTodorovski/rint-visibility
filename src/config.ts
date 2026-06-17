@@ -8,6 +8,8 @@ export type AppConfig = {
   supabaseServiceRoleKey: string | null;
   openAiApiKey: string | null;
   openAiModel: string | null;
+  anthropicApiKey: string | null;
+  anthropicModel: string | null;
   geminiApiKey: string | null;
   geminiModel: string | null;
 };
@@ -28,6 +30,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     supabaseServiceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY?.trim() || null,
     openAiApiKey: env.OPENAI_API_KEY?.trim() || null,
     openAiModel: env.OPENAI_MODEL?.trim() || null,
+    anthropicApiKey: env.ANTHROPIC_API_KEY?.trim() || null,
+    anthropicModel: env.ANTHROPIC_MODEL?.trim() || null,
     geminiApiKey: env.GEMINI_API_KEY?.trim() || null,
     geminiModel: env.GEMINI_MODEL?.trim() || null,
   };

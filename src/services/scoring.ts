@@ -1,9 +1,9 @@
 import type { ProductRow, PromptRow, StoreRow } from "../repositories/types.js";
-import type { CatalogFix } from "../repositories/types.js";
+import type { CatalogFix, ResultProvider } from "../repositories/types.js";
 
 export type FailedSlot = {
   prompt: PromptRow;
-  provider: "chatgpt" | "gemini";
+  provider: ResultProvider;
 };
 
 export function generateCatalogFixes(
@@ -84,8 +84,9 @@ export function weekStartUtc(date = new Date()): string {
 export function aggregateScore(
   results: Array<{ cited: boolean }>,
   promptCount: number,
+  providerCount: number,
 ) {
-  const citationSlotsTotal = promptCount * 2;
+  const citationSlotsTotal = promptCount * providerCount;
   const citationsCount = results.filter((r) => r.cited).length;
   const scorePct =
     citationSlotsTotal > 0
