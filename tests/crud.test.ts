@@ -62,6 +62,40 @@ describe("CRUD /v1 stores, products, prompts", () => {
     expect(read.json().store.id).toBe(upsert.json().store.id);
   });
 
+  it("deletes a store and nested data by workspace_id", async () => {
+    const app = await buildApp(testConfig(), { repositories: createMemoryRepositories() });
+
+    await app.inject({
+      method: "PUT",
+      url: `/v1/stores?workspace_id=${WORKSPACE_ID}`,
+      headers: authHeaders(TEST_API_KEY),
+      payload: { name: "Acme Shop", domain: "acme.example" },
+    });
+
+    await app.inject({
+      method: "POST",
+      url: `/v1/products?workspace_id=${WORKSPACE_ID}`,
+      headers: authHeaders(TEST_API_KEY),
+      payload: { url: "https://acme.example/products/hero", position: 1 },
+    });
+
+    const del = await app.inject({
+      method: "DELETE",
+      url: `/v1/stores?workspace_id=${WORKSPACE_ID}`,
+      headers: authHeaders(TEST_API_KEY),
+    });
+
+    expect(del.statusCode).toBe(204);
+
+    const read = await app.inject({
+      method: "GET",
+      url: `/v1/stores?workspace_id=${WORKSPACE_ID}`,
+      headers: authHeaders(TEST_API_KEY),
+    });
+
+    expect(read.statusCode).toBe(404);
+  });
+
   it("manages products and prompts for a workspace store", async () => {
     const app = await buildApp(testConfig(), { repositories: createMemoryRepositories() });
 

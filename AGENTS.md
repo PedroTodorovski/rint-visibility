@@ -28,8 +28,15 @@ Engine-only microservice for Rint v1 AI visibility (probes, scores, catalog fixe
 
 - **No UI** — JSON API only
 - **All `rint.*` SQL here** — never in rint-admin
-- **No production DB writes from local** — deploy via GitHub Actions `Database Deploy`
+- **No production DB writes from local** — Pedro applies migrations via GitHub Actions **Database Deploy** on **this repo** only
+- **Agents author migrations only** — they may add files under `supabase/migrations/` and run `npm run db:guard`; they must **not** run `supabase db push`, Management API SQL, or trigger **Database Deploy**
 - GitHub: **PedroTodorovski**
+
+## Migrations (standard)
+
+Product schema SQL lives in `supabase/migrations/` with the usual headers (`-- rint:migration`, objective, risk, rollback). Example: `20260617180000_expose_rint_postgrest_schema.sql` exposes the `rint` schema to PostgREST — same pattern as other engine repos, not a special one-off.
+
+**Apply (Pedro only):** merge to `main` → Actions → **Database Deploy** → `target_env=dev`, `dry_run=true` first, then `dry_run=false`. See `docs/database/MIGRATION_WORKFLOW.md`.
 
 ## Verify before handoff
 

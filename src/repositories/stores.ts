@@ -55,4 +55,21 @@ export class StoresRepository {
 
     return data as StoreRow;
   }
+
+  async deleteByWorkspaceId(workspaceId: string): Promise<void> {
+    const { data, error } = await this.db
+      .from("stores")
+      .delete()
+      .eq("workspace_id", workspaceId)
+      .select("id")
+      .maybeSingle();
+
+    if (error) {
+      throw mapPostgrestError(error, "Failed to delete store");
+    }
+
+    if (!data) {
+      throw notFound(`Store not found for workspace ${workspaceId}`);
+    }
+  }
 }

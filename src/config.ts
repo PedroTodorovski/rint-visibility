@@ -6,6 +6,10 @@ export type AppConfig = {
   apiKey: string | null;
   supabaseUrl: string | null;
   supabaseServiceRoleKey: string | null;
+  openAiApiKey: string | null;
+  openAiModel: string | null;
+  geminiApiKey: string | null;
+  geminiModel: string | null;
 };
 
 function readPort(value: string | undefined, fallback: number): number {
@@ -22,6 +26,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     apiKey: env.VISIBILITY_API_KEY?.trim() || null,
     supabaseUrl: env.SUPABASE_URL?.trim() || null,
     supabaseServiceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY?.trim() || null,
+    openAiApiKey: env.OPENAI_API_KEY?.trim() || null,
+    openAiModel: env.OPENAI_MODEL?.trim() || null,
+    geminiApiKey: env.GEMINI_API_KEY?.trim() || null,
+    geminiModel: env.GEMINI_MODEL?.trim() || null,
   };
 }
 

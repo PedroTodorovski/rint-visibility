@@ -1,15 +1,22 @@
 import { randomUUID } from "node:crypto";
 
 import type { VisibilityRepositories } from "../../src/repositories/index.js";
+import type { CreateResultInput } from "../../src/repositories/results.js";
+import type { UpsertWeeklyScoreInput } from "../../src/repositories/weekly-scores.js";
 import type {
   CreateProductInput,
   CreatePromptInput,
+  ProbeRunRow,
+  ProbeRunStatus,
   ProductRow,
   PromptRow,
+  ResultRow,
+  ResultWithPrompt,
   StoreRow,
   UpdateProductInput,
   UpdatePromptInput,
   UpsertStoreInput,
+  WeeklyScoreRow,
 } from "../../src/repositories/types.js";
 import { MAX_PRODUCTS_PER_STORE, MAX_PROMPTS_PER_STORE } from "../../src/repositories/types.js";
 import { limitExceeded, notFound } from "../../src/lib/errors.js";
@@ -18,6 +25,9 @@ export function createMemoryRepositories(): VisibilityRepositories {
   const storesByWorkspace = new Map<string, StoreRow>();
   const productsByStore = new Map<string, ProductRow[]>();
   const promptsByStore = new Map<string, PromptRow[]>();
+  const probeRunsByStore = new Map<string, ProbeRunRow[]>();
+  const resultsByProbeRun = new Map<string, ResultRow[]>();
+  const weeklyScoresByStore = new Map<string, WeeklyScoreRow[]>();
 
   return {
     stores: {
@@ -46,6 +56,17 @@ export function createMemoryRepositories(): VisibilityRepositories {
         };
         storesByWorkspace.set(workspaceId, store);
         return store;
+      },
+      async deleteByWorkspaceId(workspaceId: string) {
+        const store = storesByWorkspace.get(workspaceId);
+        if (!store) {
+          throw notFound(`Store not found for workspace ${workspaceId}`);
+        }
+        storesByWorkspace.delete(workspaceId);
+        productsByStore.delete(store.id);
+        promptsByStore.delete(store.id);
+        probeRunsByStore.delete(store.id);
+        weeklyScoresByStore.delete(store.id);
       },
     },
     products: {
@@ -141,6 +162,117 @@ export function createMemoryRepositories(): VisibilityRepositories {
           throw notFound(`Prompt ${promptId} not found`);
         }
         promptsByStore.set(storeId, next);
+      },
+    },
+    probeRuns: {
+      async create(storeId: string, scheduledFor: string) {
+        const now = new Date().toISOString();
+        const run: ProbeRunRow = {
+          id: randomUUID(),
+          store_id: storeId,
+          status: "pending",
+          scheduled_for: scheduledFor,
+          started_at: null,
+          completed_at: null,
+          error_message: null,
+          created_at: now,
+        };
+        const list = probeRunsByStore.get(storeId) ?? [];
+        probeRunsByStore.set(storeId, [...list, run]);
+        return run;
+      },
+      async updateStatus(
+        id: string,
+        status: ProbeRunStatus,
+        fields: { started_at?: string; completed_at?: string; error_message?: string } = {},
+      ) {
+        for (const [storeId, runs] of probeRunsByStore) {
+          const index = runs.findIndex((r) => r.id === id);
+          if (index !== -1) {
+            const updated = { ...runs[index]!, status, ...fields };
+            runs[index] = updated;
+            probeRunsByStore.set(storeId, runs);
+            return updated;
+          }
+        }
+        throw notFound(`Probe run ${id} not found`);
+      },
+      async findLatestByStoreId(storeId: string) {
+        const runs = probeRunsByStore.get(storeId) ?? [];
+        return runs.length > 0 ? runs[runs.length - 1]! : null;
+      },
+    },
+    results: {
+      async createMany(inputs: CreateResultInput[]) {
+        const created: ResultRow[] = [];
+        for (const input of inputs) {
+          const row: ResultRow = {
+            id: randomUUID(),
+            probe_run_id: input.probe_run_id,
+            prompt_id: input.prompt_id,
+            provider: input.provider,
+            cited: input.cited,
+            response_excerpt: input.response_excerpt,
+            metadata: input.metadata,
+            created_at: new Date().toISOString(),
+          };
+          const list = resultsByProbeRun.get(input.probe_run_id) ?? [];
+          resultsByProbeRun.set(input.probe_run_id, [...list, row]);
+          created.push(row);
+        }
+        return created;
+      },
+      async listByStoreId(storeId: string, options: { limit?: number; offset?: number } = {}) {
+        const limit = options.limit ?? 50;
+        const offset = options.offset ?? 0;
+        const runs = probeRunsByStore.get(storeId) ?? [];
+        const runCompleted = new Map(runs.map((r) => [r.id, r.completed_at]));
+        const promptItems = promptsByStore.get(storeId) ?? [];
+        const promptMap = new Map(promptItems.map((p) => [p.id, p.prompt_text]));
+
+        const all: ResultWithPrompt[] = [];
+        for (const run of [...runs].reverse()) {
+          for (const result of resultsByProbeRun.get(run.id) ?? []) {
+            all.push({
+              ...result,
+              prompt_text: promptMap.get(result.prompt_id) ?? "",
+              probe_completed_at: runCompleted.get(run.id) ?? null,
+            });
+          }
+        }
+
+        return all.slice(offset, offset + limit);
+      },
+    },
+    weeklyScores: {
+      async upsert(input: UpsertWeeklyScoreInput) {
+        const now = new Date().toISOString();
+        const list = weeklyScoresByStore.get(input.store_id) ?? [];
+        const index = list.findIndex((s) => s.week_start === input.week_start);
+        const row: WeeklyScoreRow = {
+          id: index >= 0 ? list[index]!.id : randomUUID(),
+          store_id: input.store_id,
+          probe_run_id: input.probe_run_id,
+          week_start: input.week_start,
+          prompts_total: input.prompts_total,
+          citation_slots_total: input.citation_slots_total,
+          citations_count: input.citations_count,
+          score_pct: input.score_pct,
+          fixes: input.fixes,
+          created_at: index >= 0 ? list[index]!.created_at : now,
+        };
+        if (index >= 0) {
+          list[index] = row;
+        } else {
+          list.push(row);
+        }
+        weeklyScoresByStore.set(input.store_id, list);
+        return row;
+      },
+      async findLatestByStoreId(storeId: string) {
+        const list = weeklyScoresByStore.get(storeId) ?? [];
+        if (list.length === 0) return null;
+        return [...list].sort((a, b) => b.week_start.localeCompare(a.week_start))[0]!;
       },
     },
   };
