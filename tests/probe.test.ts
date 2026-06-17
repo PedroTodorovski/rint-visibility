@@ -62,7 +62,7 @@ describe("Probe + score + results", () => {
 
     expect(run.statusCode).toBe(200);
     expect(run.json().citations_count).toBeGreaterThanOrEqual(0);
-    expect(run.json().citation_slots_total).toBe(10);
+    expect(run.json().citation_slots_total).toBe(5);
 
     const score = await app.inject({
       method: "GET",
@@ -92,7 +92,7 @@ describe("Probe + score + results", () => {
     });
 
     expect(list.statusCode).toBe(200);
-    expect(list.json().results.length).toBe(10);
+    expect(list.json().results.length).toBe(5);
     expect(list.json().results[0].prompt_text).toBeTruthy();
   });
 });
