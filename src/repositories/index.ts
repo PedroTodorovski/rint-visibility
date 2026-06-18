@@ -55,14 +55,21 @@ export type ProbeRunsRepositoryLike = {
     fields?: { started_at?: string; completed_at?: string; error_message?: string },
   ): Promise<ProbeRunRow>;
   findLatestByStoreId(storeId: string): Promise<ProbeRunRow | null>;
+  listByStoreId(
+    storeId: string,
+    options?: { limit?: number; offset?: number },
+  ): Promise<ProbeRunRow[]>;
+  findByIdForStore(storeId: string, runId: string): Promise<ProbeRunRow | null>;
 };
 
 export type ResultsRepositoryLike = {
   createMany(inputs: CreateResultInput[]): Promise<ResultRow[]>;
   listByStoreId(
     storeId: string,
-    options?: { limit?: number; offset?: number },
+    options?: { limit?: number; offset?: number; probeRunId?: string },
   ): Promise<ResultWithPrompt[]>;
+  listByProbeRunId(storeId: string, probeRunId: string): Promise<ResultWithPrompt[]>;
+  countByProbeRunIds(probeRunIds: string[]): Promise<Map<string, { cited: number; total: number }>>;
 };
 
 export type WeeklyScoresRepositoryLike = {

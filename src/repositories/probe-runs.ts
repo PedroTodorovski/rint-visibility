@@ -47,4 +47,34 @@ export class ProbeRunsRepository {
     if (error) throw mapPostgrestError(error, "Failed to load probe run");
     return data as ProbeRunRow | null;
   }
+
+  async listByStoreId(
+    storeId: string,
+    options: { limit?: number; offset?: number } = {},
+  ): Promise<ProbeRunRow[]> {
+    const limit = options.limit ?? 20;
+    const offset = options.offset ?? 0;
+
+    const { data, error } = await this.db
+      .from("probe_runs")
+      .select("*")
+      .eq("store_id", storeId)
+      .order("created_at", { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (error) throw mapPostgrestError(error, "Failed to list probe runs");
+    return (data ?? []) as ProbeRunRow[];
+  }
+
+  async findByIdForStore(storeId: string, runId: string): Promise<ProbeRunRow | null> {
+    const { data, error } = await this.db
+      .from("probe_runs")
+      .select("*")
+      .eq("store_id", storeId)
+      .eq("id", runId)
+      .maybeSingle();
+
+    if (error) throw mapPostgrestError(error, "Failed to load probe run");
+    return data as ProbeRunRow | null;
+  }
 }

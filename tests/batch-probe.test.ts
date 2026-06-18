@@ -1,17 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { buildBatchProbeMessage, parseBatchProbeResponse } from "../src/lib/llm/batch-probe.js";
+import { buildSingleProbeMessage, parseBatchProbeResponse } from "../src/lib/llm/batch-probe.js";
 
 describe("batch-probe", () => {
-  it("builds a numbered multi-prompt message", () => {
-    const message = buildBatchProbeMessage([
-      { index: 1, text: "best sofa" },
-      { index: 2, text: "modular couch" },
-    ]);
+  it("wraps buyer prompts with mandatory web-search instructions", () => {
+    const message = buildSingleProbeMessage("Sofá em caixa pela internet");
 
-    expect(message).toContain("1. best sofa");
-    expect(message).toContain("2. modular couch");
-    expect(message).toContain('"responses"');
+    expect(message).toContain("Sofá em caixa pela internet");
+    expect(message).toContain("Search the web");
+    expect(message).toContain("REQUIRED");
   });
 
   it("parses JSON batch responses by index", () => {

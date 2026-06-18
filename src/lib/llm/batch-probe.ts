@@ -3,17 +3,25 @@ export type BatchProbeItem = {
   text: string;
 };
 
-export function buildBatchProbeMessage(items: BatchProbeItem[]): string {
-  const lines = items.map((item) => `${item.index}. ${item.text}`).join("\n");
-  return `You answer buyer shopping questions the way a helpful AI assistant would in chat.
+/**
+ * Wraps a store-configured buyer prompt with Rint probe instructions.
+ * The shopper text may not mention the internet — we always require a web-grounded answer.
+ */
+export function buildSingleProbeMessage(buyerPrompt: string): string {
+  const question = buyerPrompt.trim();
+  return `You are evaluating how AI assistants answer real shopper questions in Brazil.
 
-For each numbered prompt below, write a realistic short answer (2–4 sentences). Mention specific brands, stores, or product URLs when relevant.
+Shopper question:
+"${question}"
 
-Reply with ONLY valid JSON — no markdown fences, no commentary:
-{"responses":[{"index":1,"answer":"..."}]}
+REQUIRED (do not skip):
+1. Search the web for current information before answering — brands, stores, product pages, and market context.
+2. Ground your answer in what you find online (Brazil-focused when relevant).
+3. Name specific brands and stores; include website URLs when you find them.
+4. Be assertive: compare players in the segment, not only generic advice.
+5. Answer in the same language as the shopper question.
 
-Prompts:
-${lines}`;
+Reply as you would in chat after searching — 2–5 short paragraphs.`;
 }
 
 export function parseBatchProbeResponse(
@@ -48,11 +56,8 @@ export function parseBatchProbeResponse(
     return map;
   }
 
+  void expectedIndexes;
   return map;
-}
-
-export function batchMaxTokens(itemCount: number): number {
-  return Math.min(8192, 512 + itemCount * 400);
 }
 
 export async function probeBatchSequential(

@@ -1,21 +1,43 @@
 import type { AppConfig } from "../../config.js";
-import {
-  batchMaxTokens,
-  buildBatchProbeMessage,
-  parseBatchProbeResponse,
-  type BatchProbeItem,
-} from "./batch-probe.js";
+import { buildSingleProbeMessage, type BatchProbeItem } from "./batch-probe.js";
 import type { LlmBatchProbeResult, LlmClient, LlmProbeResult } from "./types.js";
 
 const DEFAULT_MODEL = "claude-haiku-4-5-20251001";
 const API_URL = "https://api.anthropic.com/v1/messages";
+const WEB_SEARCH_TOOL = {
+  type: "web_search_20250305",
+  name: "web_search",
+  max_uses: 3,
+} as const;
 
-async function callClaude(
+type ClaudeResponse = {
+  content?: Array<{ type: string; text?: string }>;
+  model?: string;
+  usage?: {
+    server_tool_use?: {
+      web_search_requests?: number;
+    };
+  };
+};
+
+function extractText(data: ClaudeResponse): string {
+  return (data.content ?? [])
+    .filter((block) => block.type === "text" && block.text)
+    .map((block) => block.text!.trim())
+    .join("\n\n")
+    .trim();
+}
+
+function countWebSearches(data: ClaudeResponse): number {
+  return data.usage?.server_tool_use?.web_search_requests ?? 0;
+}
+
+async function callClaudeWithWebSearch(
   apiKey: string,
   model: string,
   userContent: string,
   maxTokens: number,
-): Promise<{ text: string; model: string } | null> {
+): Promise<{ text: string; model: string; webSearchCount: number } | null> {
   const res = await fetch(API_URL, {
     method: "POST",
     headers: {
@@ -27,37 +49,46 @@ async function callClaude(
       model,
       max_tokens: maxTokens,
       messages: [{ role: "user", content: userContent }],
+      tools: [WEB_SEARCH_TOOL],
     }),
-    signal: AbortSignal.timeout(90_000),
+    signal: AbortSignal.timeout(120_000),
   });
 
   if (!res.ok) return null;
 
-  const data = (await res.json()) as {
-    content?: Array<{ type: string; text?: string }>;
-    model?: string;
-  };
+  const data = (await res.json()) as ClaudeResponse;
+  const text = extractText(data);
+  if (!text) return null;
 
-  const text = data.content?.find((block) => block.type === "text")?.text?.trim() ?? "";
-  return { text, model: data.model ?? model };
+  return {
+    text,
+    model: data.model ?? model,
+    webSearchCount: countWebSearches(data),
+  };
 }
 
 export function createClaudeClient(config: AppConfig): LlmClient {
   const apiKey = config.anthropicApiKey;
   const model = config.anthropicModel ?? DEFAULT_MODEL;
 
-  return {
+  const client: LlmClient = {
     async probe(prompt: string): Promise<LlmProbeResult> {
       if (!apiKey) {
         return { text: "", model: "mock", mocked: true };
       }
 
       try {
-        const result = await callClaude(apiKey, model, prompt, 1024);
+        const message = buildSingleProbeMessage(prompt);
+        const result = await callClaudeWithWebSearch(apiKey, model, message, 2048);
         if (!result || !result.text) {
           return { text: "", model: "mock", mocked: true };
         }
-        return { text: result.text, model: result.model, mocked: false };
+        return {
+          text: result.text,
+          model: result.model,
+          mocked: false,
+          usedWebSearch: result.webSearchCount > 0,
+        };
       } catch {
         return { text: "", model: "mock", mocked: true };
       }
@@ -73,28 +104,31 @@ export function createClaudeClient(config: AppConfig): LlmClient {
       }
 
       try {
-        const message = buildBatchProbeMessage(items);
-        const result = await callClaude(apiKey, model, message, batchMaxTokens(items.length));
-        if (!result || !result.text) {
-          return { responses: [], model: "mock", mocked: true };
-        }
+        const settled = await Promise.all(
+          items.map(async (item) => {
+            const result = await client.probe(item.text);
+            return { index: item.index, result };
+          }),
+        );
 
-        const expectedIndexes = items.map((item) => item.index);
-        const parsed = parseBatchProbeResponse(result.text, expectedIndexes);
-        const responses = items.map((item) => ({
-          index: item.index,
-          text: parsed.get(item.index) ?? "",
+        const responses = settled.map(({ index, result }) => ({
+          index,
+          text: result.text,
         }));
 
-        const complete = responses.every((row) => row.text.length > 0);
+        const mocked = settled.some(({ result }) => result.mocked || !result.text);
+
         return {
           responses,
-          model: result.model,
-          mocked: !complete,
+          model: settled.find(({ result }) => result.model)?.result.model ?? model,
+          mocked,
+          usedWebSearch: settled.some(({ result }) => result.usedWebSearch),
         };
       } catch {
         return { responses: [], model: "mock", mocked: true };
       }
     },
   };
+
+  return client;
 }
