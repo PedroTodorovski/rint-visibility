@@ -201,6 +201,16 @@ export function createMemoryRepositories(): VisibilityRepositories {
         const runs = probeRunsByStore.get(storeId) ?? [];
         return runs.length > 0 ? runs[runs.length - 1]! : null;
       },
+      async listByStoreId(storeId: string, options: { limit?: number; offset?: number } = {}) {
+        const limit = options.limit ?? 20;
+        const offset = options.offset ?? 0;
+        const runs = probeRunsByStore.get(storeId) ?? [];
+        return [...runs].reverse().slice(offset, offset + limit);
+      },
+      async findByIdForStore(storeId: string, runId: string) {
+        const runs = probeRunsByStore.get(storeId) ?? [];
+        return runs.find((r) => r.id === runId) ?? null;
+      },
     },
     results: {
       async createMany(inputs: CreateResultInput[]) {
@@ -222,7 +232,10 @@ export function createMemoryRepositories(): VisibilityRepositories {
         }
         return created;
       },
-      async listByStoreId(storeId: string, options: { limit?: number; offset?: number } = {}) {
+      async listByStoreId(
+        storeId: string,
+        options: { limit?: number; offset?: number; probeRunId?: string } = {},
+      ) {
         const limit = options.limit ?? 50;
         const offset = options.offset ?? 0;
         const runs = probeRunsByStore.get(storeId) ?? [];
@@ -231,7 +244,11 @@ export function createMemoryRepositories(): VisibilityRepositories {
         const promptMap = new Map(promptItems.map((p) => [p.id, p.prompt_text]));
 
         const all: ResultWithPrompt[] = [];
-        for (const run of [...runs].reverse()) {
+        const filteredRuns = options.probeRunId
+          ? runs.filter((r) => r.id === options.probeRunId)
+          : [...runs].reverse();
+
+        for (const run of filteredRuns) {
           for (const result of resultsByProbeRun.get(run.id) ?? []) {
             all.push({
               ...result,
@@ -242,6 +259,29 @@ export function createMemoryRepositories(): VisibilityRepositories {
         }
 
         return all.slice(offset, offset + limit);
+      },
+      async listByProbeRunId(storeId: string, probeRunId: string) {
+        const runs = probeRunsByStore.get(storeId) ?? [];
+        const run = runs.find((r) => r.id === probeRunId);
+        if (!run) return [];
+        const promptItems = promptsByStore.get(storeId) ?? [];
+        const promptMap = new Map(promptItems.map((p) => [p.id, p.prompt_text]));
+        return (resultsByProbeRun.get(probeRunId) ?? []).map((result) => ({
+          ...result,
+          prompt_text: promptMap.get(result.prompt_id) ?? "",
+          probe_completed_at: run.completed_at,
+        }));
+      },
+      async countByProbeRunIds(probeRunIds: string[]) {
+        const counts = new Map<string, { cited: number; total: number }>();
+        for (const runId of probeRunIds) {
+          const rows = resultsByProbeRun.get(runId) ?? [];
+          counts.set(runId, {
+            cited: rows.filter((r) => r.cited).length,
+            total: rows.length,
+          });
+        }
+        return counts;
       },
     },
     weeklyScores: {

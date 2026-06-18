@@ -81,6 +81,16 @@ export type ProbeRunRow = {
   created_at: string;
 };
 
+export type ProbeRunSummary = ProbeRunRow & {
+  citations_count: number;
+  citation_slots_total: number;
+};
+
+export type ProbeRunListItem = ProbeRunRow & {
+  citations_count: number;
+  citation_slots_total: number;
+};
+
 export type ResultProvider = "claude" | "chatgpt" | "gemini";
 
 export type ResultRow = {

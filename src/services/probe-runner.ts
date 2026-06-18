@@ -143,7 +143,7 @@ async function executeProbes(
         model = "mock";
       }
 
-      const citation = detectCitation(text, ctx);
+      const citation = detectCitation(text, { ...ctx, promptText: prompt.prompt_text });
 
       results.push({
         prompt_id: prompt.id,
@@ -155,6 +155,11 @@ async function executeProbes(
           matched_url: citation.matchedUrl,
           provider_model: model,
           mocked,
+          web_search: batch.usedWebSearch === true,
+          citation_layer: citation.citationLayer,
+          why_code: citation.whyCode,
+          highlight_spans: citation.highlightSpans,
+          competitors: citation.competitors,
         },
       });
     }

@@ -25,9 +25,13 @@ export async function registerResultRoutes(
       });
     }
 
-    const query = request.query as { page?: string; limit?: string };
+    const query = request.query as { page?: string; limit?: string; probe_run_id?: string };
     const { page, limit, offset } = parsePagination(query);
-    const results = await repos.results.listByStoreId(store.id, { limit, offset });
+    const results = await repos.results.listByStoreId(store.id, {
+      limit,
+      offset,
+      probeRunId: query.probe_run_id?.trim() || undefined,
+    });
 
     return reply.code(200).send({ results, page, limit });
   });
