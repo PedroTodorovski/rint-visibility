@@ -10,6 +10,16 @@ import { validationError } from "../../lib/errors.js";
 import type { VisibilityRepositories } from "../../repositories/index.js";
 import type { CreateProductInput, UpdateProductInput } from "../../repositories/types.js";
 
+function optionalRef(value: unknown): string | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (typeof value !== "string") {
+    throw validationError("external_ref must be a string");
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 function parseCreateProductBody(body: unknown): CreateProductInput {
   if (!body || typeof body !== "object") {
     throw validationError("Invalid request body");
@@ -21,7 +31,8 @@ function parseCreateProductBody(body: unknown): CreateProductInput {
     url: requireNonEmptyString(record.url, "url"),
     title: optionalString(record.title),
     description: optionalString(record.description),
-    position: requireIntegerInRange(record.position, "position", 1, 3),
+    external_ref: optionalRef(record.external_ref) ?? null,
+    position: requireIntegerInRange(record.position, "position", 1, 5),
   };
 }
 
@@ -42,8 +53,11 @@ function parseUpdateProductBody(body: unknown): UpdateProductInput {
   if (record.description !== undefined) {
     input.description = optionalString(record.description);
   }
+  if (record.external_ref !== undefined) {
+    input.external_ref = optionalRef(record.external_ref) ?? null;
+  }
   if (record.position !== undefined) {
-    input.position = requireIntegerInRange(record.position, "position", 1, 3);
+    input.position = requireIntegerInRange(record.position, "position", 1, 5);
   }
 
   if (Object.keys(input).length === 0) {

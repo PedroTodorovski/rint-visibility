@@ -1,5 +1,8 @@
 import type { AppConfig } from "../config.js";
 import { createSupabaseClient } from "../db/client.js";
+import { DualTrackOutputsRepository } from "./dual-track-outputs.js";
+import { LacunaSnapshotsRepository } from "./lacuna-snapshots.js";
+import { PerRunReadCacheRepository } from "./per-run-read-cache.js";
 import { ProbeRunsRepository } from "./probe-runs.js";
 import { ProductsRepository } from "./products.js";
 import { PromptsRepository } from "./prompts.js";
@@ -77,6 +80,10 @@ export type WeeklyScoresRepositoryLike = {
   findLatestByStoreId(storeId: string): Promise<WeeklyScoreRow | null>;
 };
 
+export type PerRunReadCacheRepositoryLike = import("./per-run-read-cache.js").PerRunReadCacheRepositoryLike;
+export type LacunaSnapshotsRepositoryLike = import("./lacuna-snapshots.js").LacunaSnapshotsRepositoryLike;
+export type DualTrackOutputsRepositoryLike = import("./dual-track-outputs.js").DualTrackOutputsRepositoryLike;
+
 export type VisibilityRepositories = {
   stores: StoresRepositoryLike;
   products: ProductsRepositoryLike;
@@ -84,6 +91,9 @@ export type VisibilityRepositories = {
   probeRuns: ProbeRunsRepositoryLike;
   results: ResultsRepositoryLike;
   weeklyScores: WeeklyScoresRepositoryLike;
+  perRunReadCache: PerRunReadCacheRepositoryLike;
+  lacunaSnapshots: LacunaSnapshotsRepositoryLike;
+  dualTrackOutputs: DualTrackOutputsRepositoryLike;
 };
 
 export function createRepositories(config: AppConfig): VisibilityRepositories {
@@ -95,6 +105,9 @@ export function createRepositories(config: AppConfig): VisibilityRepositories {
     probeRuns: new ProbeRunsRepository(db),
     results: new ResultsRepository(db),
     weeklyScores: new WeeklyScoresRepository(db),
+    perRunReadCache: new PerRunReadCacheRepository(db),
+    lacunaSnapshots: new LacunaSnapshotsRepository(db),
+    dualTrackOutputs: new DualTrackOutputsRepository(db),
   };
 }
 

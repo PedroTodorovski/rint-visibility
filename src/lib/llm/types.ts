@@ -1,14 +1,15 @@
-export type LlmProvider = "claude" | "chatgpt" | "gemini";
+export type LlmProvider = "gemini";
 
 export type LlmProbeResult = {
   text: string;
   model: string;
   mocked: boolean;
   usedWebSearch?: boolean;
+  groundingUrls?: string[];
 };
 
 export type LlmBatchProbeResult = {
-  responses: Array<{ index: number; text: string }>;
+  responses: Array<{ index: number; text: string; groundingUrls?: string[] }>;
   model: string;
   mocked: boolean;
   usedWebSearch?: boolean;
@@ -20,7 +21,5 @@ export type LlmClient = {
 };
 
 export type LlmClients = {
-  claude: LlmClient;
-  chatgpt: LlmClient;
   gemini: LlmClient;
 };

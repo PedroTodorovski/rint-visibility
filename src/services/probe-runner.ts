@@ -1,10 +1,12 @@
 import { detectCitation } from "../lib/citation.js";
-import type { LlmClients, LlmProvider } from "../lib/llm/index.js";
+import type { LlmClients } from "../lib/llm/index.js";
+import { filterAliveUrls } from "../lib/url-validator.js";
 import type { VisibilityRepositories } from "../repositories/index.js";
 import type { ProductRow, PromptRow, StoreRow } from "../repositories/types.js";
+import { runDiagnosticPipeline } from "./diagnostic-pipeline.js";
 import { aggregateScore, generateCatalogFixes, weekStartUtc } from "./scoring.js";
 
-const PROVIDERS: LlmProvider[] = ["claude"];
+const PROVIDERS = ["gemini"] as const;
 
 function mockResponse(store: StoreRow, cited: boolean): string {
   if (!cited) {
@@ -19,6 +21,7 @@ export type ProbeRunOutcome = {
   weeklyScoreId: string;
   citationsCount: number;
   citationSlotsTotal: number;
+  lacunaSnapshotId?: string;
 };
 
 export async function runProbeForWorkspace(
@@ -81,11 +84,20 @@ export async function runProbeForWorkspace(
       completed_at: new Date().toISOString(),
     });
 
+    const diagnostic = await runDiagnosticPipeline(repos, {
+      store,
+      products,
+      probeRunId: probeRun.id,
+      results,
+      promptCount: activePrompts.length,
+    });
+
     return {
       probeRunId: probeRun.id,
       weeklyScoreId: weeklyScore.id,
       citationsCount,
       citationSlotsTotal,
+      lacunaSnapshotId: diagnostic.lacunaSnapshotId,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Probe run failed";
@@ -99,7 +111,7 @@ export async function runProbeForWorkspace(
 
 type ProbeResultDraft = {
   prompt_id: string;
-  provider: LlmProvider;
+  provider: "gemini";
   cited: boolean;
   response_excerpt: string | null;
   metadata: Record<string, unknown>;
@@ -127,14 +139,19 @@ async function executeProbes(
     }));
 
     const batch = await llm[provider].probeBatch(items);
-    const answerByIndex = new Map(batch.responses.map((row) => [row.index, row.text]));
+    const answerByIndex = new Map(batch.responses.map((row) => [row.index, row]));
+
+    const allGroundingUrls = batch.responses.flatMap((r) => r.groundingUrls ?? []);
+    const urlValidation = await filterAliveUrls(allGroundingUrls);
 
     for (let i = 0; i < sorted.length; i++) {
       const prompt = sorted[i]!;
       const index = i + 1;
-      let text = answerByIndex.get(index) ?? "";
+      const batchRow = answerByIndex.get(index);
+      let text = batchRow?.text ?? "";
       let mocked = batch.mocked;
       let model = batch.model;
+      const groundingUrls = batchRow?.groundingUrls ?? [];
 
       if (mocked || !text) {
         const cited = index % 3 !== 0;
@@ -143,12 +160,23 @@ async function executeProbes(
         model = "mock";
       }
 
+      const deadUrls = groundingUrls.filter((u) => !urlValidation.get(u)?.alive);
+      const aliveGroundingUrls = groundingUrls.filter((u) => urlValidation.get(u)?.alive);
+
       const citation = detectCitation(text, { ...ctx, promptText: prompt.prompt_text });
+
+      let cited = citation.cited;
+      let whyCode = citation.whyCode;
+
+      if (citation.matchedUrl && !urlValidation.get(citation.matchedUrl)?.alive) {
+        cited = false;
+        whyCode = "url_dead";
+      }
 
       results.push({
         prompt_id: prompt.id,
         provider,
-        cited: citation.cited,
+        cited,
         response_excerpt: citation.excerpt || text.slice(0, 200),
         metadata: {
           match_signals: citation.matchSignals,
@@ -157,9 +185,11 @@ async function executeProbes(
           mocked,
           web_search: batch.usedWebSearch === true,
           citation_layer: citation.citationLayer,
-          why_code: citation.whyCode,
+          why_code: whyCode,
           highlight_spans: citation.highlightSpans,
           competitors: citation.competitors,
+          grounding_urls: aliveGroundingUrls,
+          dead_urls: deadUrls,
         },
       });
     }

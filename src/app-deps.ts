@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { AppConfig } from "./config.js";
 import { hasSupabaseConfig } from "./config.js";
 import { createRepositories, type VisibilityRepositories } from "./repositories/index.js";
+import { registerDiagnosticsRoutes } from "./routes/v1/diagnostics.js";
 import { registerProbeRunRoutes } from "./routes/v1/probe-runs.js";
 import { registerProductRoutes } from "./routes/v1/products.js";
 import { registerPromptRoutes } from "./routes/v1/prompts.js";
@@ -43,6 +44,7 @@ async function registerUnconfiguredCrudRoutes(app: FastifyInstance): Promise<voi
   app.get("/probe-runs", respond);
   app.get("/probe-runs/compare", respond);
   app.get("/probe-runs/:runId/results", respond);
+  app.get("/diagnostics/latest", respond);
 }
 
 export function resolveRepositories(
@@ -77,6 +79,7 @@ export async function registerCrudRoutes(
   await registerPromptRoutes(app, repositories);
   await registerProbeRoutes(app, repositories, config);
   await registerProbeRunRoutes(app, repositories);
+  await registerDiagnosticsRoutes(app, repositories);
   await registerScoreRoutes(app, repositories);
   await registerResultRoutes(app, repositories);
 }
