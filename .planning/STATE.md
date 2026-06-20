@@ -1,46 +1,35 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
+milestone: mvp-2026
 status: phase_01_mvp
+progress:
+  total_phases: 2
+  completed_phases: 1
+  percent: 35
 ---
 
 # STATE — rint-visibility
 
-## Role
+## Current Position
 
-Engine API for Rint v1 AI visibility. **Owns Supabase `rint` schema** (migrations + deploy CI).
+- **Phase:** 1 — MVP 2026 (lacuna de receita)
+- **Active program:** [MVP-DEFINITION.md](../../rint-admin/.planning/MVP-DEFINITION.md)
+- **Foundation shipped:** probe runs API, citation metadata, trust-layer evidence
+- **Next slice:** `gemini-probe-only` (documented)
 
-## Current slice
+## Repo boundaries
 
-`visibility-probe-runner` ✓ · `visibility-scoring` ✓ — engine complete; admin wire-up in progress
+| Repo | Owns |
+|------|------|
+| **rint-visibility** | API, Supabase `rint.*`, migrations, db-guardrails |
+| **rint-admin** | D1, UI, proxy |
 
-## Completed
+## Decisions Log
 
-- `db-ownership` ✓ — Supabase CI migrated from rint-admin (ADR-002, PR #1)
-- `mvp-schema` ✓ — stores, products, prompts, probe_runs, results, weekly_scores + RLS (PR #2, dev deployed)
-- `visibility-api-auth` ✓ — Bearer middleware on `/v1`, smoke `GET /v1/status` (PR #3)
-- `visibility-api-crud` ✓ — stores/products/prompts CRUD under `/v1` (PR #4)
-- `visibility-probe-runner` ✓ — POST `/v1/probes/run`, ChatGPT + Gemini, citation detection
-- `visibility-scoring` ✓ — weekly_scores aggregation, catalog fixes, GET `/v1/scores/latest`, GET `/v1/results`
+- 2026-06-19: MVP 2026 pivot — Gemini-only, lacuna C1+C2, dual-track, data minimalism
+- 2026-06-17: Probe runs API + batch probe foundation
+- 2026-06-17: ADR-002 — migrations here only
 
-## Next (Phase 1)
+## Blockers
 
-1. `admin-visibility-shell` — rint-admin history page + wire client ✓ (in progress)
-4. … see `../rint-admin/.planning/phases/01-mvp-v1/PLAN.md`
-
-## Verify
-
-```bash
-npm run typecheck && npm test && npm run db:guard
-```
-
-## GitHub
-
-- Account: **PedroTodorovski**
-- App deploy: Railway (separate project)
-- DB deploy: **Actions → Database Deploy** on this repo (`dev` / `prod` environments)
-
-## Docs
-
-- `docs/database/GOVERNANCE.md` — rules
-- `docs/database/MIGRATION_WORKFLOW.md` — deploy runbook + secrets
+- None (docs+pivot complete; implementation slices pending)
