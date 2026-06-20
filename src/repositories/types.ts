@@ -17,6 +17,7 @@ export type ProductRow = {
   url: string;
   title: string | null;
   description: string | null;
+  external_ref: string | null;
   position: number;
   created_at: string;
   updated_at: string;
@@ -43,6 +44,7 @@ export type CreateProductInput = {
   url: string;
   title?: string | null;
   description?: string | null;
+  external_ref?: string | null;
   position: number;
 };
 
@@ -50,6 +52,7 @@ export type UpdateProductInput = {
   url?: string;
   title?: string | null;
   description?: string | null;
+  external_ref?: string | null;
   position?: number;
 };
 
@@ -65,7 +68,7 @@ export type UpdatePromptInput = {
   sort_order?: number;
 };
 
-export const MAX_PRODUCTS_PER_STORE = 3;
+export const MAX_PRODUCTS_PER_STORE = 5;
 export const MAX_PROMPTS_PER_STORE = 10;
 
 export type ProbeRunStatus = "pending" | "running" | "completed" | "failed";
@@ -91,7 +94,7 @@ export type ProbeRunListItem = ProbeRunRow & {
   citation_slots_total: number;
 };
 
-export type ResultProvider = "claude" | "chatgpt" | "gemini";
+export type ResultProvider = "gemini";
 
 export type ResultRow = {
   id: string;

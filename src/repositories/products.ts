@@ -42,6 +42,7 @@ export class ProductsRepository {
         url: input.url,
         title: input.title ?? null,
         description: input.description ?? null,
+        external_ref: input.external_ref ?? null,
         position: input.position,
         updated_at: now,
       })
@@ -63,6 +64,7 @@ export class ProductsRepository {
     if (input.url !== undefined) patch.url = input.url;
     if (input.title !== undefined) patch.title = input.title;
     if (input.description !== undefined) patch.description = input.description;
+    if (input.external_ref !== undefined) patch.external_ref = input.external_ref;
     if (input.position !== undefined) patch.position = input.position;
 
     const { data, error } = await this.db

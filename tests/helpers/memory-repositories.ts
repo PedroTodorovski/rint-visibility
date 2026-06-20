@@ -28,6 +28,9 @@ export function createMemoryRepositories(): VisibilityRepositories {
   const probeRunsByStore = new Map<string, ProbeRunRow[]>();
   const resultsByProbeRun = new Map<string, ResultRow[]>();
   const weeklyScoresByStore = new Map<string, WeeklyScoreRow[]>();
+  const portCacheStore = new Map<string, { payload: unknown; expires_at: string }>();
+  const lacunaSnapshotRows: import("../../src/repositories/lacuna-snapshots.js").LacunaSnapshotRow[] = [];
+  const dualTrackRows: import("../../src/repositories/dual-track-outputs.js").DualTrackOutputRow[] = [];
 
   return {
     stores: {
@@ -85,6 +88,7 @@ export function createMemoryRepositories(): VisibilityRepositories {
           url: input.url,
           title: input.title ?? null,
           description: input.description ?? null,
+          external_ref: input.external_ref ?? null,
           position: input.position,
           created_at: now,
           updated_at: now,
@@ -313,6 +317,62 @@ export function createMemoryRepositories(): VisibilityRepositories {
         const list = weeklyScoresByStore.get(storeId) ?? [];
         if (list.length === 0) return null;
         return [...list].sort((a, b) => b.week_start.localeCompare(a.week_start))[0]!;
+      },
+    },
+    perRunReadCache: {
+      async get(probeRunId: string, portName: string, cacheKey: string) {
+        const key = `${probeRunId}:${portName}:${cacheKey}`;
+        const row = portCacheStore.get(key);
+        if (!row || row.expires_at <= new Date().toISOString()) return null;
+        return {
+          id: key,
+          probe_run_id: probeRunId,
+          port_name: portName,
+          cache_key: cacheKey,
+          payload: row.payload as Record<string, unknown>,
+          fetched_at: new Date().toISOString(),
+          expires_at: row.expires_at,
+        };
+      },
+      async set(probeRunId: string, portName: string, cacheKey: string, payload: unknown, expiresAt: string) {
+        const key = `${probeRunId}:${portName}:${cacheKey}`;
+        portCacheStore.set(key, { payload, expires_at: expiresAt });
+      },
+    },
+    lacunaSnapshots: {
+      async create(input) {
+        const row = {
+          id: randomUUID(),
+          ...input,
+          created_at: new Date().toISOString(),
+        };
+        lacunaSnapshotRows.push(row);
+        return row;
+      },
+      async findLatestByStoreId(storeId: string) {
+        const matches = lacunaSnapshotRows.filter((r) => r.store_id === storeId);
+        return matches.length > 0 ? matches[matches.length - 1]! : null;
+      },
+      async findByProbeRunId(probeRunId: string) {
+        return lacunaSnapshotRows.find((r) => r.probe_run_id === probeRunId) ?? null;
+      },
+    },
+    dualTrackOutputs: {
+      async createMany(inputs) {
+        const created = inputs.map((input) => ({
+          id: randomUUID(),
+          probe_run_id: input.probe_run_id,
+          sku_ref_id: input.sku_ref_id,
+          track_number: input.track_number,
+          items: input.items,
+          triage_owner: input.triage_owner,
+          created_at: new Date().toISOString(),
+        }));
+        dualTrackRows.push(...created);
+        return created;
+      },
+      async listByProbeRunId(probeRunId: string) {
+        return dualTrackRows.filter((r) => r.probe_run_id === probeRunId);
       },
     },
   };

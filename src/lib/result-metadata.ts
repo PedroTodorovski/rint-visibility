@@ -7,7 +7,8 @@ export type WhyCode =
   | "uncited_competitor"
   | "uncited_generic"
   | "uncited_prompt_mismatch"
-  | "uncited_no_mention";
+  | "uncited_no_mention"
+  | "url_dead";
 
 export type HighlightSpan = {
   start: number;

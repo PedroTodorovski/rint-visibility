@@ -13,7 +13,7 @@ function row(
     id: `${probeRunId}-${promptId}`,
     probe_run_id: probeRunId,
     prompt_id: promptId,
-    provider: "claude",
+    provider: "gemini",
     cited,
     response_excerpt: null,
     metadata: {},
