@@ -1,10 +1,17 @@
 # Database Governance
 
-This document defines non-negotiable governance rules for **Rint product data** in Supabase.
+**Product SSOT:** [MVP-DEFINITION.md](../../rint-admin/.planning/MVP-DEFINITION.md)  
+**Data contract:** [DATA-MINIMALISM-CONTRACT.md](../../rint-admin/docs/architecture/DATA-MINIMALISM-CONTRACT.md)
 
-**SSOT:** This repository (`rint-visibility`) owns the `rint` schema, migrations, and deploy workflows.
+## MVP persistência (allow/deny)
 
-**Not here:** `rint-admin` owns Cloudflare D1 (auth, billing, CMS) only — see [rint-admin](https://github.com/PedroTodorovski/rint-admin).
+| Allow | Deny |
+|-------|------|
+| `probe_runs`, `results` | Catálogo Shopify completo |
+| Derivados: lacuna, dual-track snapshots | Meta/GA4 facts crus |
+| `per_run_read_cache` (TTL run) | Sync bulk jobs |
+
+Engine consulta APIs via ports no diagnóstico — não replica warehouse operacional.
 
 ## Scope
 

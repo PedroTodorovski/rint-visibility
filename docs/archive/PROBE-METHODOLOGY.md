@@ -1,4 +1,6 @@
-# Probe methodology — web-grounded visibility
+> **SUPERSEDED (2026-06-19)** — Substituído por [GEMINI-PROBE-METHODOLOGY.md](./GEMINI-PROBE-METHODOLOGY.md). MVP = Gemini-only grounding.
+
+# Probe methodology — web-grounded visibility (archived approach)
 
 ## Product principle
 
