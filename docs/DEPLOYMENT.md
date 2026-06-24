@@ -59,13 +59,13 @@ Expected: `{"status":"ok","service":"rint-visibility",...}`
 |----------|--------|
 | `PORT` | Injected by Railway |
 | `NODE_ENV` | `production` |
-| `VISIBILITY_API_KEY` | Bearer token for rint-admin → engine |
+| `VISIBILITY_API_KEY` | Bearer token for rint-app → engine |
 | `SUPABASE_URL` | Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server-side only |
 
 Supabase **migration deploy** secrets live in GitHub (`rint-visibility` environments `dev` / `prod`), not Railway.
 
-## rint-admin (future)
+## rint-app (future)
 
 When `admin-visibility-shell` ships, set in Cloudflare Workers / wrangler:
 

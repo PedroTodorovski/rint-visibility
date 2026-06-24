@@ -1,7 +1,7 @@
 # Database Governance
 
-**Product SSOT:** [MVP-DEFINITION.md](../../rint-admin/.planning/MVP-DEFINITION.md)  
-**Data contract:** [DATA-MINIMALISM-CONTRACT.md](../../rint-admin/docs/architecture/DATA-MINIMALISM-CONTRACT.md)
+**Product SSOT:** [MVP-DEFINITION.md](../../rint-app/.planning/MVP-DEFINITION.md)  
+**Data contract:** [DATA-MINIMALISM-CONTRACT.md](../../rint-app/docs/architecture/DATA-MINIMALISM-CONTRACT.md)
 
 ## MVP persistência (allow/deny)
 
@@ -18,7 +18,7 @@ Engine consulta APIs via ports no diagnóstico — não replica warehouse operac
 - Applies to all database changes for Supabase environments: `dev` and `prod`.
 - Applies to engineers, AI agents, external contributors, and automation.
 - Product v1 data lives in the `rint` schema in Supabase; **this repo** authors migrations and runs deploy CI.
-- Admin auth/billing/CMS live in Cloudflare D1 (`rint-admin`) — out of scope for this document.
+- Admin auth/billing/CMS live in Cloudflare D1 (`rint-app`) — out of scope for this document.
 
 ## Principles
 

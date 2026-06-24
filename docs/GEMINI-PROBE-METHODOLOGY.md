@@ -1,6 +1,6 @@
 # Gemini Probe Methodology
 
-> Substitui conceitualmente [PROBE-METHODOLOGY.md](./PROBE-METHODOLOGY.md) (superseded). Canônico produto: [MVP-DEFINITION.md](../../rint-admin/.planning/MVP-DEFINITION.md).
+> Substitui conceitualmente [PROBE-METHODOLOGY.md](./PROBE-METHODOLOGY.md) (superseded). Canônico produto: [MVP-DEFINITION.md](../../rint-app/.planning/MVP-DEFINITION.md).
 
 ---
 
@@ -50,7 +50,7 @@ Protocolo obrigatório antes de release:
 |---------|-----------|
 | `citação_cliente` | prompts onde domínio/brand do cliente aparece em grounding |
 | `citação_concorrente` | prompts onde concorrente configurado aparece |
-| Ratio | usado na fórmula Lacuna_R$ — ver [REVENUE-MODEL.md](../../rint-admin/docs/REVENUE-MODEL.md) |
+| Ratio | usado na fórmula Lacuna_R$ — ver [REVENUE-MODEL.md](../../rint-app/docs/REVENUE-MODEL.md) |
 
 Não usar apenas X/Y genérico sem contexto de cluster SKU.
 
