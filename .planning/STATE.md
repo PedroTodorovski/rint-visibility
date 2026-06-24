@@ -22,7 +22,7 @@ progress:
 | Repo | Owns |
 |------|------|
 | **rint-visibility** | API, Supabase `rint.*`, migrations, db-guardrails |
-| **rint-admin** | D1, UI, proxy |
+| **rint-app** | D1, UI, proxy |
 
 ## Decisions Log
 

@@ -11,12 +11,12 @@ Engine API for Rint MVP 2026 — Gemini probes, revenue gap (future), Supabase `
 
 | Task | Doc |
 |------|-----|
-| Product SSOT | `../rint-admin/.planning/MVP-DEFINITION.md` |
+| Product SSOT | `../rint-app/.planning/MVP-DEFINITION.md` |
 | Probe | `docs/GEMINI-PROBE-METHODOLOGY.md` |
-| Data contract | `../rint-admin/docs/architecture/DATA-MINIMALISM-CONTRACT.md` |
-| Variable origins | `../rint-admin/docs/integrations/VARIABLE-ORIGIN-CONTRACT.md` |
+| Data contract | `../rint-app/docs/architecture/DATA-MINIMALISM-CONTRACT.md` |
+| Variable origins | `../rint-app/docs/integrations/VARIABLE-ORIGIN-CONTRACT.md` |
 | DB governance | `docs/database/GOVERNANCE.md` |
-| Harness | `../rint-admin/docs/harness/REVIEW-RINT-VISIBILITY.md` |
+| Harness | `../rint-app/docs/harness/REVIEW-RINT-VISIBILITY.md` |
 
 ## Rules
 
