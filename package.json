@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Rint v1 engine — AI visibility probes, weekly score, catalog fixes",
   "engines": {
-    "node": ">=22"
+    "node": ">=24.0.0"
   },
   "scripts": {
     "dev": "tsx watch --env-file=.env.local src/server.ts",
