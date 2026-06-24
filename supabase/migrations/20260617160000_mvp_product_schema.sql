@@ -17,8 +17,8 @@ create table rint.stores (
   constraint stores_workspace_id_key unique (workspace_id)
 );
 
-comment on table rint.stores is 'Merchant store linked to rint-app workspace_id (D1).';
-comment on column rint.stores.workspace_id is 'External tenant key from rint-app D1 workspaces.id';
+comment on table rint.stores is 'Merchant store linked to rint-admin workspace_id (D1).';
+comment on column rint.stores.workspace_id is 'External tenant key from rint-admin D1 workspaces.id';
 
 create index stores_status_idx on rint.stores (status);
 
