@@ -17,6 +17,8 @@ Rint MVP 2026 **engine API** — Gemini probes, revenue gap engine (slices futur
 
 ## Verify
 
+**Prerequisites:** Node.js 24+ (see `.nvmrc`), Python 3.12+ (see `.python-version`).
+
 ```bash
 npm run typecheck && npm test && npm run db:guard
 ```
