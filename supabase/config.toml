@@ -1,4 +1,4 @@
-project_id = "rint-admin"
+project_id = "rint-app"
 
 [api]
 enabled = true

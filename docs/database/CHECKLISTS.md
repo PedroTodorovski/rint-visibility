@@ -1,6 +1,6 @@
 # Database Checklists
 
-**Repo:** `rint-visibility` only. Do not run these checklists for Supabase work in `rint-admin`.
+**Repo:** `rint-visibility` only. Do not run these checklists for Supabase work in `rint-app`.
 
 ## Pre-Flight Checklist (Local)
 
@@ -32,7 +32,7 @@
 
 - [ ] Migrations applied in `dev` via **Database Deploy** on **this repo**.
 - [ ] `Database Deploy` (`target_env=dev`) passed with `dry_run=true` before `dry_run=false`.
-- [ ] Secrets live on **rint-visibility** GitHub environment `dev` (not rint-admin).
+- [ ] Secrets live on **rint-visibility** GitHub environment `dev` (not rint-app).
 - [ ] Smoke checks executed for impacted modules.
 - [ ] Data integrity spot-check executed.
 - [ ] Evidence linked in PR/ticket.

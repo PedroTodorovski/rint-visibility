@@ -57,7 +57,7 @@ Database GitHub Actions must stay on runtime versions that GitHub currently supp
 
 ## GitHub Environment Contract
 
-**Repository:** `PedroTodorovski/rint-visibility` only (ADR-002). Do not configure Supabase deploy secrets on `rint-admin`.
+**Repository:** `PedroTodorovski/rint-visibility` only (ADR-002). Do not configure Supabase deploy secrets on `rint-app`.
 
 Configure protected environments: `dev` and `prod` (`Settings → Environments`).
 

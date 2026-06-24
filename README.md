@@ -4,7 +4,7 @@ Rint MVP 2026 **engine API** — Gemini probes, revenue gap engine (slices futur
 
 - **Stack:** Fastify 5, TypeScript, Supabase (`rint` schema)
 - **Deploy:** Railway — `https://api.rint.io`
-- **No UI** — [`rint-admin`](https://github.com/PedroTodorovski/rint-admin)
+- **No UI** — [`rint-app`](https://github.com/PedroTodorovski/rint-app)
 - **Migrations SSOT** — this repo (ADR-002)
 
 ## Docs
@@ -12,7 +12,7 @@ Rint MVP 2026 **engine API** — Gemini probes, revenue gap engine (slices futur
 | Doc | Purpose |
 |-----|---------|
 | [GEMINI-PROBE-METHODOLOGY.md](docs/GEMINI-PROBE-METHODOLOGY.md) | Probe canônico |
-| [../rint-admin/.planning/MVP-DEFINITION.md](../rint-admin/.planning/MVP-DEFINITION.md) | Produto |
+| [../rint-app/.planning/MVP-DEFINITION.md](../rint-app/.planning/MVP-DEFINITION.md) | Produto |
 | [docs/database/GOVERNANCE.md](docs/database/GOVERNANCE.md) | Persistência |
 
 ## Verify

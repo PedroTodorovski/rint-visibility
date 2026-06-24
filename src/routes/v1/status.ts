@@ -8,7 +8,7 @@ export type V1StatusResponse = {
   authenticated: true;
 };
 
-/** Smoke route for rint-admin to verify Bearer auth and connectivity. */
+/** Smoke route for rint-app to verify Bearer auth and connectivity. */
 export async function registerV1StatusRoute(
   app: FastifyInstance,
   config: AppConfig,
