@@ -40,6 +40,10 @@ export async function runProbeForWorkspace(
     throw new Error("No active prompts configured for this store");
   }
 
+  const productMap = new Map(products.map((p) => [p.id, p]));
+  const scopedPrompts = activePrompts.filter((p) => p.product_id);
+  const legacyPrompts = activePrompts.filter((p) => !p.product_id);
+
   const today = new Date().toISOString().slice(0, 10);
   const probeRun = await repos.probeRuns.create(store.id, today);
 
@@ -48,7 +52,25 @@ export async function runProbeForWorkspace(
   });
 
   try {
-    const results = await executeProbes(store, products, activePrompts, llm);
+    const results: ProbeResultDraft[] = [];
+
+    if (scopedPrompts.length > 0) {
+      const byProduct = groupPromptsByProduct(scopedPrompts);
+      for (const [productId, productPrompts] of byProduct) {
+        const product = productMap.get(productId);
+        if (!product) continue;
+        const batch = await executeProbesForProduct(store, product, productPrompts, llm);
+        results.push(...batch);
+      }
+    }
+
+    if (legacyPrompts.length > 0) {
+      const legacy = await executeLegacyProbes(store, products, legacyPrompts, llm);
+      results.push(...legacy);
+    }
+
+    const matrixSlotCount = countMatrixSlots(scopedPrompts, legacyPrompts);
+
     await repos.results.createMany(
       results.map((r) => ({
         probe_run_id: probeRun.id,
@@ -62,7 +84,7 @@ export async function runProbeForWorkspace(
 
     const { citationSlotsTotal, citationsCount, scorePct, promptsTotal } = aggregateScore(
       results,
-      activePrompts.length,
+      matrixSlotCount,
       PROVIDERS.length,
     );
 
@@ -89,7 +111,7 @@ export async function runProbeForWorkspace(
       products,
       probeRunId: probeRun.id,
       results,
-      promptCount: activePrompts.length,
+      promptCount: matrixSlotCount,
     });
 
     return {
@@ -117,7 +139,46 @@ type ProbeResultDraft = {
   metadata: Record<string, unknown>;
 };
 
-async function executeProbes(
+function groupPromptsByProduct(prompts: PromptRow[]): Map<string, PromptRow[]> {
+  const map = new Map<string, PromptRow[]>();
+  for (const prompt of prompts) {
+    if (!prompt.product_id) continue;
+    const list = map.get(prompt.product_id) ?? [];
+    list.push(prompt);
+    map.set(prompt.product_id, list);
+  }
+  return map;
+}
+
+function countMatrixSlots(scopedPrompts: PromptRow[], legacyPrompts: PromptRow[]): number {
+  let total = legacyPrompts.length;
+  const byProduct = groupPromptsByProduct(scopedPrompts);
+  for (const productPrompts of byProduct.values()) {
+    total += productPrompts.length;
+  }
+  return total;
+}
+
+async function executeProbesForProduct(
+  store: StoreRow,
+  product: ProductRow,
+  prompts: PromptRow[],
+  llm: LlmClients,
+): Promise<ProbeResultDraft[]> {
+  const ctx = {
+    storeName: store.name,
+    domain: store.domain,
+    productUrls: [product.url],
+  };
+
+  const sorted = [...prompts].sort(
+    (a, b) => a.sort_order - b.sort_order || a.created_at.localeCompare(b.created_at),
+  );
+
+  return runProbeBatch(store, sorted, ctx, llm, product.id);
+}
+
+async function executeLegacyProbes(
   store: StoreRow,
   products: ProductRow[],
   prompts: PromptRow[],
@@ -130,6 +191,16 @@ async function executeProbes(
     (a, b) => a.sort_order - b.sort_order || a.created_at.localeCompare(b.created_at),
   );
 
+  return runProbeBatch(store, sorted, ctx, llm, null);
+}
+
+async function runProbeBatch(
+  store: StoreRow,
+  sorted: PromptRow[],
+  ctx: { storeName: string; domain: string | null; productUrls: string[] },
+  llm: LlmClients,
+  productId: string | null,
+): Promise<ProbeResultDraft[]> {
   const results: ProbeResultDraft[] = [];
 
   for (const provider of PROVIDERS) {
@@ -173,24 +244,30 @@ async function executeProbes(
         whyCode = "url_dead";
       }
 
+      const metadata: Record<string, unknown> = {
+        match_signals: citation.matchSignals,
+        matched_url: citation.matchedUrl,
+        provider_model: model,
+        mocked,
+        web_search: batch.usedWebSearch === true,
+        citation_layer: citation.citationLayer,
+        why_code: whyCode,
+        highlight_spans: citation.highlightSpans,
+        competitors: citation.competitors,
+        grounding_urls: aliveGroundingUrls,
+        dead_urls: deadUrls,
+      };
+
+      if (productId) {
+        metadata.product_id = productId;
+      }
+
       results.push({
         prompt_id: prompt.id,
         provider,
         cited,
         response_excerpt: citation.excerpt || text.slice(0, 200),
-        metadata: {
-          match_signals: citation.matchSignals,
-          matched_url: citation.matchedUrl,
-          provider_model: model,
-          mocked,
-          web_search: batch.usedWebSearch === true,
-          citation_layer: citation.citationLayer,
-          why_code: whyCode,
-          highlight_spans: citation.highlightSpans,
-          competitors: citation.competitors,
-          grounding_urls: aliveGroundingUrls,
-          dead_urls: deadUrls,
-        },
+        metadata,
       });
     }
   }

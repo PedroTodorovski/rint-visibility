@@ -135,6 +135,7 @@ export function createMemoryRepositories(): VisibilityRepositories {
         const prompt: PromptRow = {
           id: randomUUID(),
           store_id: storeId,
+          product_id: input.product_id ?? null,
           prompt_text: input.prompt_text,
           active: input.active ?? true,
           sort_order: input.sort_order ?? 0,

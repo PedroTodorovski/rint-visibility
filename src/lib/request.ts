@@ -78,6 +78,25 @@ export function optionalInteger(value: unknown, field: string): number | undefin
   return value;
 }
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export function optionalUuid(value: unknown, field: string): string | null | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (value === null) {
+    return null;
+  }
+
+  if (typeof value !== "string" || !UUID_RE.test(value.trim())) {
+    throw validationError(`${field} must be a valid UUID`);
+  }
+
+  return value.trim();
+}
+
 export function authHeaders(apiKey: string): { authorization: string } {
   return { authorization: `Bearer ${apiKey}` };
 }
