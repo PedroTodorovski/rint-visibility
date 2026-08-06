@@ -11,9 +11,11 @@ import { registerProbeRoutes } from "./routes/v1/probes.js";
 import { registerResultRoutes } from "./routes/v1/results.js";
 import { registerScoreRoutes } from "./routes/v1/scores.js";
 import { registerStoreRoutes } from "./routes/v1/stores.js";
+import { createDiagnosticQueue, type DiagnosticQueue } from "./services/diagnostic-queue.js";
 
 export type BuildAppDeps = {
   repositories?: VisibilityRepositories;
+  diagnosticQueue?: DiagnosticQueue;
 };
 
 function notConfiguredReply() {
@@ -44,6 +46,9 @@ async function registerUnconfiguredCrudRoutes(app: FastifyInstance): Promise<voi
   app.get("/probe-runs", respond);
   app.get("/probe-runs/compare", respond);
   app.get("/probe-runs/:runId/results", respond);
+  app.post("/diagnostics/run", respond);
+  app.get("/jobs/:jobId", respond);
+  app.get("/diagnostics/:jobId", respond);
   app.get("/diagnostics/latest", respond);
 }
 
@@ -79,7 +84,8 @@ export async function registerCrudRoutes(
   await registerPromptRoutes(app, repositories);
   await registerProbeRoutes(app, repositories, config);
   await registerProbeRunRoutes(app, repositories);
-  await registerDiagnosticsRoutes(app, repositories);
+  const diagnosticQueue = deps.diagnosticQueue ?? createDiagnosticQueue({ repos: repositories, config });
+  await registerDiagnosticsRoutes(app, repositories, config, diagnosticQueue);
   await registerScoreRoutes(app, repositories);
   await registerResultRoutes(app, repositories);
 }

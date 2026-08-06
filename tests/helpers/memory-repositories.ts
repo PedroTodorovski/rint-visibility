@@ -18,6 +18,23 @@ import type {
   UpsertStoreInput,
   WeeklyScoreRow,
 } from "../../src/repositories/types.js";
+import type {
+  CreateDiagnosticInput,
+  CreateDiagnosticQueryInput,
+  CreateDiagnosticSkuInput,
+  CreateFinancialRiskInput,
+  CreateJobInput,
+  CreateTriageResultInput,
+  CreateUsageEventInput,
+  DiagnosticQueryRow,
+  DiagnosticRow,
+  DiagnosticSkuRow,
+  FinancialRiskRow,
+  JobRow,
+  TriageResultRow,
+  UsageEventRow,
+} from "../../src/repositories/diagnostic-tables.js";
+import type { DiagnosticJobStatus } from "../../src/services/diagnostic-types.js";
 import { MAX_PRODUCTS_PER_STORE, MAX_PROMPTS_PER_STORE } from "../../src/repositories/types.js";
 import { limitExceeded, notFound } from "../../src/lib/errors.js";
 
@@ -31,6 +48,13 @@ export function createMemoryRepositories(): VisibilityRepositories {
   const portCacheStore = new Map<string, { payload: unknown; expires_at: string }>();
   const lacunaSnapshotRows: import("../../src/repositories/lacuna-snapshots.js").LacunaSnapshotRow[] = [];
   const dualTrackRows: import("../../src/repositories/dual-track-outputs.js").DualTrackOutputRow[] = [];
+  const jobRows: JobRow[] = [];
+  const diagnosticSkuRows: DiagnosticSkuRow[] = [];
+  const diagnosticQueryRows: DiagnosticQueryRow[] = [];
+  const triageRows: TriageResultRow[] = [];
+  const financialRiskRows: FinancialRiskRow[] = [];
+  const diagnosticRows: DiagnosticRow[] = [];
+  const usageRows: UsageEventRow[] = [];
 
   return {
     stores: {
@@ -374,6 +398,144 @@ export function createMemoryRepositories(): VisibilityRepositories {
       },
       async listByProbeRunId(probeRunId: string) {
         return dualTrackRows.filter((r) => r.probe_run_id === probeRunId);
+      },
+    },
+    jobs: {
+      async create(input: CreateJobInput) {
+        const now = new Date().toISOString();
+        const row: JobRow = {
+          id: randomUUID(),
+          store_id: input.store_id,
+          probe_run_id: input.probe_run_id ?? null,
+          status: "pending",
+          plan: input.plan,
+          webhook_url: input.webhook_url ?? null,
+          config_snapshot: input.config_snapshot ?? {},
+          error_message: null,
+          created_at: now,
+          updated_at: now,
+          started_at: null,
+          completed_at: null,
+        };
+        jobRows.push(row);
+        return row;
+      },
+      async updateStatus(
+        id: string,
+        status: DiagnosticJobStatus,
+        fields: { started_at?: string; completed_at?: string; error_message?: string } = {},
+      ) {
+        const index = jobRows.findIndex((row) => row.id === id);
+        if (index === -1) throw notFound(`Job ${id} not found`);
+        const updated: JobRow = {
+          ...jobRows[index]!,
+          status,
+          updated_at: new Date().toISOString(),
+          started_at: fields.started_at ?? jobRows[index]!.started_at,
+          completed_at: fields.completed_at ?? jobRows[index]!.completed_at,
+          error_message:
+            fields.error_message !== undefined ? fields.error_message : jobRows[index]!.error_message,
+        };
+        jobRows[index] = updated;
+        return updated;
+      },
+      async findByIdForStore(storeId: string, jobId: string) {
+        return jobRows.find((row) => row.store_id === storeId && row.id === jobId) ?? null;
+      },
+      async findById(jobId: string) {
+        return jobRows.find((row) => row.id === jobId) ?? null;
+      },
+      async findLatestByStoreId(storeId: string) {
+        return [...jobRows]
+          .filter((row) => row.store_id === storeId)
+          .sort((a, b) => b.created_at.localeCompare(a.created_at))[0] ?? null;
+      },
+    },
+    diagnosticSkus: {
+      async create(input: CreateDiagnosticSkuInput) {
+        const row: DiagnosticSkuRow = {
+          id: randomUUID(),
+          job_id: input.job_id,
+          product_id: input.product_id ?? null,
+          url: input.url,
+          external_ref: input.external_ref ?? null,
+          shopify_data: input.shopify_data,
+          validation_status: input.validation_status ?? "valid",
+          validation_errors: input.validation_errors ?? [],
+          created_at: new Date().toISOString(),
+        };
+        diagnosticSkuRows.push(row);
+        return row;
+      },
+      async listByJobId(jobId: string) {
+        return diagnosticSkuRows.filter((row) => row.job_id === jobId);
+      },
+    },
+    diagnosticQueries: {
+      async create(input: CreateDiagnosticQueryInput) {
+        const row: DiagnosticQueryRow = {
+          id: randomUUID(),
+          ...input,
+          created_at: new Date().toISOString(),
+        };
+        diagnosticQueryRows.push(row);
+        return row;
+      },
+      async listByJobId(jobId: string) {
+        return diagnosticQueryRows.filter((row) => row.job_id === jobId);
+      },
+    },
+    triageResults: {
+      async create(input: CreateTriageResultInput) {
+        const row: TriageResultRow = {
+          id: randomUUID(),
+          ...input,
+          created_at: new Date().toISOString(),
+        };
+        triageRows.push(row);
+        return row;
+      },
+      async findByJobId(jobId: string) {
+        return triageRows.find((row) => row.job_id === jobId) ?? null;
+      },
+    },
+    financialRisk: {
+      async createMany(inputs: CreateFinancialRiskInput[]) {
+        const rows = inputs.map((input) => ({
+          id: randomUUID(),
+          ...input,
+          created_at: new Date().toISOString(),
+        }));
+        financialRiskRows.push(...rows);
+        return rows;
+      },
+      async listByJobId(jobId: string) {
+        return financialRiskRows.filter((row) => row.job_id === jobId);
+      },
+    },
+    diagnostics: {
+      async create(input: CreateDiagnosticInput) {
+        const row: DiagnosticRow = {
+          id: randomUUID(),
+          ...input,
+          created_at: new Date().toISOString(),
+        };
+        diagnosticRows.push(row);
+        return row;
+      },
+      async findByJobId(jobId: string) {
+        return diagnosticRows.find((row) => row.job_id === jobId) ?? null;
+      },
+    },
+    usageEvents: {
+      async create(input: CreateUsageEventInput) {
+        const row: UsageEventRow = {
+          id: randomUUID(),
+          ...input,
+          timestamp: new Date().toISOString(),
+        };
+        usageRows.push(row);
+        return row;
       },
     },
   };

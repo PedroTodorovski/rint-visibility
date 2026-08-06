@@ -18,6 +18,17 @@ Health check: `GET /health`
 | Healthcheck path | `/health` |
 | Branch | `main` |
 
+## Diagnostic worker
+
+The dominant diagnostics engine is asynchronous. Production must run two Railway services from the same repository:
+
+1. API service: `npm start`
+2. Worker service: `npm run start:worker`
+
+Both services need the same runtime variables. The API enqueues jobs in BullMQ; the worker consumes them and writes job status, evidence, financial risk, and final diagnostics back to Supabase.
+
+For local development without `REDIS_URL`, the API uses an in-process queue fallback. Do not rely on that fallback in production.
+
 ## Custom domain — `visibility.rint.io`
 
 ### 1. Railway
@@ -62,6 +73,10 @@ Expected: `{"status":"ok","service":"rint-visibility",...}`
 | `VISIBILITY_API_KEY` | Bearer token for rint-app → engine |
 | `SUPABASE_URL` | Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server-side only |
+| `REDIS_URL` | Required in production for BullMQ diagnostics queue |
+| `DIAGNOSTIC_JOB_ATTEMPTS` | Optional, defaults to `3` |
+| `DIAGNOSTIC_JOB_BACKOFF_MS` | Optional, defaults to `30000` |
+| `DIAGNOSTIC_WEBHOOK_SECRET` | Optional shared secret for diagnostic completion webhooks |
 
 Supabase **migration deploy** secrets live in GitHub (`rint-visibility` environments `dev` / `prod`), not Railway.
 
