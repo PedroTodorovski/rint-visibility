@@ -1,5 +1,14 @@
 import type { AppConfig } from "../config.js";
 import { createSupabaseClient } from "../db/client.js";
+import {
+  DiagnosticQueriesRepository,
+  DiagnosticsRepository,
+  DiagnosticSkusRepository,
+  FinancialRiskRepository,
+  JobsRepository,
+  TriageResultsRepository,
+  UsageEventsRepository,
+} from "./diagnostic-tables.js";
 import { DualTrackOutputsRepository } from "./dual-track-outputs.js";
 import { LacunaSnapshotsRepository } from "./lacuna-snapshots.js";
 import { PerRunReadCacheRepository } from "./per-run-read-cache.js";
@@ -83,6 +92,16 @@ export type WeeklyScoresRepositoryLike = {
 export type PerRunReadCacheRepositoryLike = import("./per-run-read-cache.js").PerRunReadCacheRepositoryLike;
 export type LacunaSnapshotsRepositoryLike = import("./lacuna-snapshots.js").LacunaSnapshotsRepositoryLike;
 export type DualTrackOutputsRepositoryLike = import("./dual-track-outputs.js").DualTrackOutputsRepositoryLike;
+export type JobsRepositoryLike = Pick<
+  JobsRepository,
+  "create" | "updateStatus" | "findByIdForStore" | "findById" | "findLatestByStoreId"
+>;
+export type DiagnosticSkusRepositoryLike = Pick<DiagnosticSkusRepository, "create" | "listByJobId">;
+export type DiagnosticQueriesRepositoryLike = Pick<DiagnosticQueriesRepository, "create" | "listByJobId">;
+export type TriageResultsRepositoryLike = Pick<TriageResultsRepository, "create" | "findByJobId">;
+export type FinancialRiskRepositoryLike = Pick<FinancialRiskRepository, "createMany" | "listByJobId">;
+export type DiagnosticsRepositoryLike = Pick<DiagnosticsRepository, "create" | "findByJobId">;
+export type UsageEventsRepositoryLike = Pick<UsageEventsRepository, "create">;
 
 export type VisibilityRepositories = {
   stores: StoresRepositoryLike;
@@ -94,6 +113,13 @@ export type VisibilityRepositories = {
   perRunReadCache: PerRunReadCacheRepositoryLike;
   lacunaSnapshots: LacunaSnapshotsRepositoryLike;
   dualTrackOutputs: DualTrackOutputsRepositoryLike;
+  jobs: JobsRepositoryLike;
+  diagnosticSkus: DiagnosticSkusRepositoryLike;
+  diagnosticQueries: DiagnosticQueriesRepositoryLike;
+  triageResults: TriageResultsRepositoryLike;
+  financialRisk: FinancialRiskRepositoryLike;
+  diagnostics: DiagnosticsRepositoryLike;
+  usageEvents: UsageEventsRepositoryLike;
 };
 
 export function createRepositories(config: AppConfig): VisibilityRepositories {
@@ -108,6 +134,13 @@ export function createRepositories(config: AppConfig): VisibilityRepositories {
     perRunReadCache: new PerRunReadCacheRepository(db),
     lacunaSnapshots: new LacunaSnapshotsRepository(db),
     dualTrackOutputs: new DualTrackOutputsRepository(db),
+    jobs: new JobsRepository(db),
+    diagnosticSkus: new DiagnosticSkusRepository(db),
+    diagnosticQueries: new DiagnosticQueriesRepository(db),
+    triageResults: new TriageResultsRepository(db),
+    financialRisk: new FinancialRiskRepository(db),
+    diagnostics: new DiagnosticsRepository(db),
+    usageEvents: new UsageEventsRepository(db),
   };
 }
 
@@ -117,6 +150,16 @@ export { ProbeRunsRepository } from "./probe-runs.js";
 export { ResultsRepository } from "./results.js";
 export { StoresRepository } from "./stores.js";
 export { WeeklyScoresRepository } from "./weekly-scores.js";
+export {
+  DiagnosticQueriesRepository,
+  DiagnosticsRepository,
+  DiagnosticSkusRepository,
+  FinancialRiskRepository,
+  JobsRepository,
+  TriageResultsRepository,
+  UsageEventsRepository,
+};
 export type { UpsertWeeklyScoreInput } from "./weekly-scores.js";
 export type { CreateResultInput } from "./results.js";
+export type * from "./diagnostic-tables.js";
 export * from "./types.js";

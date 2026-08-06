@@ -9,3 +9,4 @@ export function createLlmClients(config: AppConfig): LlmClients {
 }
 
 export type { LlmBatchProbeResult, LlmClient, LlmClients, LlmProbeResult, LlmProvider } from "./types.js";
+export type { LlmStructuredDiagnosticResult } from "./types.js";
