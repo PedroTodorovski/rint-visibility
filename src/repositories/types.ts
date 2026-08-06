@@ -26,6 +26,7 @@ export type ProductRow = {
 export type PromptRow = {
   id: string;
   store_id: string;
+  product_id: string | null;
   prompt_text: string;
   active: boolean;
   sort_order: number;
@@ -58,18 +59,21 @@ export type UpdateProductInput = {
 
 export type CreatePromptInput = {
   prompt_text: string;
+  product_id?: string | null;
   active?: boolean;
   sort_order?: number;
 };
 
 export type UpdatePromptInput = {
   prompt_text?: string;
+  product_id?: string | null;
   active?: boolean;
   sort_order?: number;
 };
 
 export const MAX_PRODUCTS_PER_STORE = 5;
 export const MAX_PROMPTS_PER_STORE = 10;
+export const MAX_PROMPTS_PER_PRODUCT = 5;
 
 export type ProbeRunStatus = "pending" | "running" | "completed" | "failed";
 

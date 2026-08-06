@@ -3,6 +3,7 @@ import type { FastifyInstance } from "fastify";
 import {
   optionalBoolean,
   optionalInteger,
+  optionalUuid,
   requireNonEmptyString,
   requireWorkspaceId,
 } from "../../lib/request.js";
@@ -19,6 +20,7 @@ function parseCreatePromptBody(body: unknown): CreatePromptInput {
 
   return {
     prompt_text: requireNonEmptyString(record.prompt_text, "prompt_text"),
+    product_id: optionalUuid(record.product_id, "product_id"),
     active: optionalBoolean(record.active),
     sort_order: optionalInteger(record.sort_order, "sort_order"),
   };
@@ -34,6 +36,9 @@ function parseUpdatePromptBody(body: unknown): UpdatePromptInput {
 
   if (record.prompt_text !== undefined) {
     input.prompt_text = requireNonEmptyString(record.prompt_text, "prompt_text");
+  }
+  if (record.product_id !== undefined) {
+    input.product_id = optionalUuid(record.product_id, "product_id");
   }
   if (record.active !== undefined) {
     input.active = optionalBoolean(record.active);
