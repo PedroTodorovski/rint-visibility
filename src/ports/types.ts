@@ -81,7 +81,10 @@ export type ShopifyRevenuePort = {
 };
 
 export type ShopifyProductSnapshotPort = {
-  getProductSnapshot(input: { ref: string | null; url: string }): Promise<ShopifyProductSnapshot | null>;
+  getProductSnapshot(input: {
+    ref: string | null;
+    url: string;
+  }): Promise<ShopifyProductSnapshot | null>;
 };
 
 export type MetaCacPort = {
@@ -106,7 +109,10 @@ export type GoogleTrendsPort = {
 };
 
 export type SeoAuthorityPort = {
-  getAuthorityGap(input: { competitorUrl: string; clientDomain: string | null }): Promise<SeoAuthorityGap>;
+  getAuthorityGap(input: {
+    competitorUrl: string;
+    clientDomain: string | null;
+  }): Promise<SeoAuthorityGap>;
 };
 
 export type IntegrationPorts = {
@@ -121,8 +127,18 @@ export type IntegrationPorts = {
 };
 
 export type IntegrationRegistryConfig = {
-  shopify?: { shopDomain?: string; accessToken?: string; adminApiVersion?: string; secretRef?: string };
-  meta?: { adAccountId?: string; accessToken?: string; graphApiVersion?: string; secretRef?: string };
+  shopify?: {
+    shopDomain?: string;
+    accessToken?: string;
+    adminApiVersion?: string;
+    secretRef?: string;
+  };
+  meta?: {
+    adAccountId?: string;
+    accessToken?: string;
+    graphApiVersion?: string;
+    secretRef?: string;
+  };
   ga4?: {
     propertyId?: string;
     accessToken?: string;

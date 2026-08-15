@@ -4,8 +4,8 @@ import type { AppConfig } from "../config.js";
 import { createLlmClients } from "../lib/llm/index.js";
 import type { VisibilityRepositories } from "../repositories/index.js";
 import {
-  runDominantDiagnostic,
   type DominantDiagnosticJobPayload,
+  runDominantDiagnostic,
 } from "./dominant-diagnostic-runner.js";
 
 const QUEUE_NAME = "rint-diagnostics";
@@ -36,11 +36,14 @@ export function createInProcessDiagnosticQueue(input: {
   return {
     async enqueue(payload) {
       setTimeout(() => {
-        void runDominantDiagnostic({
-          repos: input.repos,
-          llm,
-          config: input.config,
-        }, payload);
+        void runDominantDiagnostic(
+          {
+            repos: input.repos,
+            llm,
+            config: input.config,
+          },
+          payload,
+        );
       }, 0);
     },
   };

@@ -1,6 +1,6 @@
 import Fastify from "fastify";
 
-import { registerCrudRoutes, type BuildAppDeps } from "./app-deps.js";
+import { type BuildAppDeps, registerCrudRoutes } from "./app-deps.js";
 import type { AppConfig } from "./config.js";
 import { registerBearerAuth } from "./plugins/bearer-auth.js";
 import { registerErrorHandler } from "./plugins/error-handler.js";

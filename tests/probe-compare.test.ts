@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
-
-import { compareProbeResults } from "../src/services/probe-compare.js";
 import type { ResultWithPrompt } from "../src/repositories/types.js";
+import { compareProbeResults } from "../src/services/probe-compare.js";
 
 function row(
   probeRunId: string,

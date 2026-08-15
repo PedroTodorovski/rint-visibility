@@ -68,7 +68,9 @@ export function assertRuntimeConfig(config: AppConfig): void {
   }
 
   if (!hasSupabaseConfig(config)) {
-    throw new Error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required when NODE_ENV=production");
+    throw new Error(
+      "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required when NODE_ENV=production",
+    );
   }
 
   if (!config.redisUrl) {

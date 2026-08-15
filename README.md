@@ -2,7 +2,8 @@
 
 Rint MVP 2026 **engine API** — Gemini probes, revenue gap engine (slices futuros).
 
-- **Stack:** Fastify 5, TypeScript, Supabase (`rint` schema)
+- **Stack:** Fastify 5, TypeScript 6, Supabase (`rint` schema)
+- **Toolchain:** [rint-app/docs/harness/STACK.md](../rint-app/docs/harness/STACK.md)
 - **Deploy:** Railway — `https://api.rint.io`
 - **No UI** — [`rint-app`](https://github.com/PedroTodorovski/rint-app)
 - **Migrations SSOT** — this repo (ADR-002)
@@ -17,8 +18,8 @@ Rint MVP 2026 **engine API** — Gemini probes, revenue gap engine (slices futur
 
 ## Verify
 
-**Prerequisites:** Node.js 24+ (see `.nvmrc`), Python 3.12+ (see `.python-version`).
+**Prerequisites:** Node.js 24+ (see `.nvmrc`).
 
 ```bash
-npm run typecheck && npm test && npm run db:guard
+npm run verify
 ```

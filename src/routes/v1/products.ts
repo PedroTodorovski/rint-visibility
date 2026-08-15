@@ -1,12 +1,11 @@
 import type { FastifyInstance } from "fastify";
-
+import { validationError } from "../../lib/errors.js";
 import {
   optionalString,
   requireIntegerInRange,
   requireNonEmptyString,
   requireWorkspaceId,
 } from "../../lib/request.js";
-import { validationError } from "../../lib/errors.js";
 import type { VisibilityRepositories } from "../../repositories/index.js";
 import type { CreateProductInput, UpdateProductInput } from "../../repositories/types.js";
 

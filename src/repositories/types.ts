@@ -136,4 +136,3 @@ export type ResultWithPrompt = ResultRow & {
   prompt_text: string;
   probe_completed_at: string | null;
 };
-

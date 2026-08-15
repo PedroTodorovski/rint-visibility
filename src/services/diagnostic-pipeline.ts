@@ -3,10 +3,7 @@ import { DEFAULT_PORT_TTL_MS, readThroughCache } from "../ports/read-through-cac
 import type { VisibilityRepositories } from "../repositories/index.js";
 import type { ProductRow, StoreRow } from "../repositories/types.js";
 import { generateDualTracks } from "./dual-track-generator.js";
-import {
-  aggregateCitationCounts,
-  computeRevenueGap,
-} from "./revenue-gap-engine.js";
+import { aggregateCitationCounts, computeRevenueGap } from "./revenue-gap-engine.js";
 
 export type DiagnosticPipelineInput = {
   store: StoreRow;
@@ -36,8 +33,13 @@ export async function runDiagnosticPipeline(
   const cacheKeyBase = `${window.start}:${window.end}`;
 
   const [ga4Read, shopifyRead, metaRead] = await Promise.all([
-    readThroughCache(cache, input.probeRunId, "ga4", `ai-referral:${cacheKeyBase}`, DEFAULT_PORT_TTL_MS, () =>
-      ports.ga4.getAiReferralRevenue(window),
+    readThroughCache(
+      cache,
+      input.probeRunId,
+      "ga4",
+      `ai-referral:${cacheKeyBase}`,
+      DEFAULT_PORT_TTL_MS,
+      () => ports.ga4.getAiReferralRevenue(window),
     ),
     readThroughCache(
       cache,

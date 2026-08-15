@@ -17,6 +17,7 @@ Engine API for Rint MVP 2026 — Gemini probes, revenue gap (future), Supabase `
 | Variable origins | `../rint-app/docs/integrations/VARIABLE-ORIGIN-CONTRACT.md` |
 | DB governance | `docs/database/GOVERNANCE.md` |
 | Harness | `../rint-app/docs/harness/REVIEW-RINT-VISIBILITY.md` |
+| Stack | `../rint-app/docs/harness/STACK.md` |
 
 ## Harness commands
 
@@ -33,6 +34,6 @@ Do not answer with raw test/build commands unless Pedro explicitly asks for veri
 ## Verify
 
 ```bash
-npm run typecheck && npm test
-npm run db:guard   # if migrations changed
+npm run verify
+npm run db:guard   # included in verify; required if migrations changed
 ```

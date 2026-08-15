@@ -1,8 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-
+import type { DualTrackItem, TriageOwner } from "../services/dual-track-generator.js";
 import { mapPostgrestError } from "./postgrest.js";
-import type { DualTrackItem } from "../services/dual-track-generator.js";
-import type { TriageOwner } from "../services/dual-track-generator.js";
 
 type VisibilityDb = SupabaseClient<any, "public", "rint">;
 

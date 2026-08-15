@@ -89,7 +89,10 @@ export function selectPoolerConfig(rawConfigs) {
 
   if (!selected) {
     const availableConfigs = candidates
-      .map((config) => `${config.database_type ?? "unknown"}:${config.pool_mode ?? "unknown"}:${config.db_port ?? "unknown"}`)
+      .map(
+        (config) =>
+          `${config.database_type ?? "unknown"}:${config.pool_mode ?? "unknown"}:${config.db_port ?? "unknown"}`,
+      )
       .join(", ");
     throw new Error(
       [
@@ -143,7 +146,9 @@ function resolveExplicitDatabaseUrl(databaseUrl, password) {
   const url = parseDatabaseUrl(databaseUrl);
   const parsedPassword = url.password ? safeDecodeURIComponent(url.password) : "";
   const shouldInjectPassword =
-    !parsedPassword || PASSWORD_PLACEHOLDER_TEST_PATTERN.test(databaseUrl) || isPasswordPlaceholder(parsedPassword);
+    !parsedPassword ||
+    PASSWORD_PLACEHOLDER_TEST_PATTERN.test(databaseUrl) ||
+    isPasswordPlaceholder(parsedPassword);
 
   if (shouldInjectPassword) {
     if (!password) {
@@ -207,7 +212,9 @@ function inspectDatabaseUrl(databaseUrl) {
         user: parsed.db_user,
         database: parsed.db_name,
         poolMode: "session",
-        poolerIdentifier: parsed.db_user.includes(".") ? parsed.db_user.split(".").slice(1).join(".") : "n/a",
+        poolerIdentifier: parsed.db_user.includes(".")
+          ? parsed.db_user.split(".").slice(1).join(".")
+          : "n/a",
         inferredFrom: "transaction_pooler_url",
       };
     }
@@ -226,17 +233,22 @@ function inspectDatabaseUrl(databaseUrl) {
     user: parsed.db_user,
     database: parsed.db_name,
     poolMode: parsed.db_host.endsWith(".pooler.supabase.com") ? parsed.pool_mode : "direct",
-    poolerIdentifier: parsed.db_user.includes(".") ? parsed.db_user.split(".").slice(1).join(".") : "n/a",
+    poolerIdentifier: parsed.db_user.includes(".")
+      ? parsed.db_user.split(".").slice(1).join(".")
+      : "n/a",
   };
 }
 
 async function fetchPoolerConfig({ accessToken, projectRef, fetchImpl = fetch }) {
-  const response = await fetchImpl(`${SUPABASE_API_BASE_URL}/v1/projects/${projectRef}/config/database/pooler`, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      Accept: "application/json",
+  const response = await fetchImpl(
+    `${SUPABASE_API_BASE_URL}/v1/projects/${projectRef}/config/database/pooler`,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: "application/json",
+      },
     },
-  });
+  );
 
   if (!response.ok) {
     const body = await response.text();
@@ -254,8 +266,16 @@ function writeGitHubEnv(key, value) {
   appendFileSync(process.env.GITHUB_ENV, `${key}=${value}\n`, "utf8");
 }
 
-async function resolveSessionPoolerDatabaseUrl({ accessToken, projectRef, password, fetchImpl, bypassedDirectHost }) {
-  const poolerConfig = selectPoolerConfig(await fetchPoolerConfig({ accessToken, projectRef, fetchImpl }));
+async function resolveSessionPoolerDatabaseUrl({
+  accessToken,
+  projectRef,
+  password,
+  fetchImpl,
+  bypassedDirectHost,
+}) {
+  const poolerConfig = selectPoolerConfig(
+    await fetchPoolerConfig({ accessToken, projectRef, fetchImpl }),
+  );
 
   if (poolerConfig.inferred_from === "transaction_pooler_metadata") {
     console.warn(
@@ -273,7 +293,11 @@ async function resolveSessionPoolerDatabaseUrl({ accessToken, projectRef, passwo
     safeConfig: {
       host: poolerConfig.db_host,
       port: poolerConfig.db_port,
-      user: normalizePoolerUser(poolerConfig.db_user, poolerConfig.db_host, poolerConfig.identifier ?? projectRef),
+      user: normalizePoolerUser(
+        poolerConfig.db_user,
+        poolerConfig.db_host,
+        poolerConfig.identifier ?? projectRef,
+      ),
       database: poolerConfig.db_name,
       poolMode: poolerConfig.pool_mode ?? "unknown",
       poolerIdentifier: poolerConfig.identifier ?? projectRef,
@@ -290,7 +314,10 @@ export async function resolveSupabaseDbUrl({ env = process.env, fetchImpl = fetc
   const projectRef = requireEnv(env, "SUPABASE_PROJECT_REF");
 
   if (env.SUPABASE_DB_URL) {
-    const { databaseUrl, passwordSource } = resolveExplicitDatabaseUrl(env.SUPABASE_DB_URL, env.SUPABASE_DB_PASSWORD);
+    const { databaseUrl, passwordSource } = resolveExplicitDatabaseUrl(
+      env.SUPABASE_DB_URL,
+      env.SUPABASE_DB_PASSWORD,
+    );
     const parsed = parseConnectionString(databaseUrl);
 
     if (parsed && isDirectSupabaseDatabaseHost(parsed.db_host)) {

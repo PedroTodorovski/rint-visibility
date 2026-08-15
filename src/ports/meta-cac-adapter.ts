@@ -31,7 +31,9 @@ function metaFor(adAccountId: string): MetaSkuCac["meta"] {
   };
 }
 
-function purchaseConversions(actions: Array<{ action_type?: string; value?: string }> | undefined): number {
+function purchaseConversions(
+  actions: Array<{ action_type?: string; value?: string }> | undefined,
+): number {
   let total = 0;
   for (const action of actions ?? []) {
     const type = action.action_type ?? "";
@@ -51,10 +53,7 @@ export function createMetaCacPort(
   return {
     async getSkuCac(_ref: string, window: AnalysisWindow): Promise<MetaSkuCac> {
       const url = new URL(`${graphBaseUrl(apiVersion)}/${adAccountId}/insights`);
-      url.searchParams.set(
-        "fields",
-        "spend,actions",
-      );
+      url.searchParams.set("fields", "spend,actions");
       url.searchParams.set(
         "time_range",
         JSON.stringify({ since: window.start, until: window.end }),

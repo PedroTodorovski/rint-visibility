@@ -1,3 +1,4 @@
+import type { ShopifyProductSnapshot } from "../services/diagnostic-types.js";
 import type {
   AnalysisWindow,
   PortReadMeta,
@@ -5,7 +6,6 @@ import type {
   ShopifyRevenuePort,
   ShopifySkuRevenue,
 } from "./types.js";
-import type { ShopifyProductSnapshot } from "../services/diagnostic-types.js";
 
 export type ShopifyPortCredentials = {
   shopDomain: string;
@@ -103,10 +103,15 @@ export function extractShopifyProductHandle(url: string): string | null {
   }
 }
 
-function lineItemRevenue(node: {
-  discountedTotalSet?: { shopMoney?: { amount?: string } };
-  originalTotalSet?: { shopMoney?: { amount?: string } };
-} | null | undefined): number {
+function lineItemRevenue(
+  node:
+    | {
+        discountedTotalSet?: { shopMoney?: { amount?: string } };
+        originalTotalSet?: { shopMoney?: { amount?: string } };
+      }
+    | null
+    | undefined,
+): number {
   const discounted = Number(node?.discountedTotalSet?.shopMoney?.amount ?? NaN);
   if (Number.isFinite(discounted) && discounted > 0) return discounted;
   return Number(node?.originalTotalSet?.shopMoney?.amount ?? 0) || 0;
@@ -116,7 +121,8 @@ export function createShopifyRevenuePort(
   credentials: ShopifyPortCredentials,
   fetchImpl: typeof fetch = fetch,
 ): ShopifyRevenuePort {
-  const shopDomain = credentials.shopDomain.replace(/^https?:\/\//, "").split("/")[0] ?? credentials.shopDomain;
+  const shopDomain =
+    credentials.shopDomain.replace(/^https?:\/\//, "").split("/")[0] ?? credentials.shopDomain;
   const apiVersion = credentials.adminApiVersion?.trim() || "2026-04";
 
   return {
@@ -139,15 +145,17 @@ export function createShopifyRevenuePort(
       const orderIds = new Set<string>();
 
       for (let page = 0; page < 20; page++) {
-        const response = await fetchImpl(`https://${shopDomain}/admin/api/${apiVersion}/graphql.json`, {
-          method: "POST",
-          headers: {
-            Accept: "application/json",
-            "Content-Type": "application/json",
-            "X-Shopify-Access-Token": credentials.accessToken,
-          },
-          body: JSON.stringify({
-            query: `#graphql
+        const response = await fetchImpl(
+          `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`,
+          {
+            method: "POST",
+            headers: {
+              Accept: "application/json",
+              "Content-Type": "application/json",
+              "X-Shopify-Access-Token": credentials.accessToken,
+            },
+            body: JSON.stringify({
+              query: `#graphql
               query RintSkuOrders($query: String!, $first: Int!, $after: String) {
                 orders(first: $first, after: $after, query: $query, sortKey: CREATED_AT) {
                   edges {
@@ -169,9 +177,10 @@ export function createShopifyRevenuePort(
                 }
               }
             `,
-            variables: { query: queryFilter, first: 50, after },
-          }),
-        });
+              variables: { query: queryFilter, first: 50, after },
+            }),
+          },
+        );
 
         const payload = (await response.json()) as ShopifyOrdersResponse;
         if (!response.ok || payload.errors?.length) {
@@ -251,7 +260,9 @@ function productAttributes(product: ShopifyProductNode): {
   const color = findValue(["cor", "color"]);
 
   return {
-    attributes: [...new Set([...values.values(), material, dimension, color].filter(Boolean) as string[])],
+    attributes: [
+      ...new Set([...values.values(), material, dimension, color].filter(Boolean) as string[]),
+    ],
     material,
     dimension,
     color,
@@ -262,7 +273,8 @@ export function createShopifyProductSnapshotPort(
   credentials: ShopifyPortCredentials,
   fetchImpl: typeof fetch = fetch,
 ): ShopifyProductSnapshotPort {
-  const shopDomain = credentials.shopDomain.replace(/^https?:\/\//, "").split("/")[0] ?? credentials.shopDomain;
+  const shopDomain =
+    credentials.shopDomain.replace(/^https?:\/\//, "").split("/")[0] ?? credentials.shopDomain;
   const apiVersion = credentials.adminApiVersion?.trim() || "2026-04";
 
   return {
@@ -272,15 +284,17 @@ export function createShopifyProductSnapshotPort(
 
       if (!productGid && !handle) return null;
 
-      const response = await fetchImpl(`https://${shopDomain}/admin/api/${apiVersion}/graphql.json`, {
-        method: "POST",
-        headers: {
-          Accept: "application/json",
-          "Content-Type": "application/json",
-          "X-Shopify-Access-Token": credentials.accessToken,
-        },
-        body: JSON.stringify({
-          query: `#graphql
+      const response = await fetchImpl(
+        `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`,
+        {
+          method: "POST",
+          headers: {
+            Accept: "application/json",
+            "Content-Type": "application/json",
+            "X-Shopify-Access-Token": credentials.accessToken,
+          },
+          body: JSON.stringify({
+            query: `#graphql
             query RintProductSnapshot($id: ID, $handle: String) {
               product(id: $id) {
                 id
@@ -334,9 +348,10 @@ export function createShopifyProductSnapshotPort(
               }
             }
           `,
-          variables: { id: productGid, handle },
-        }),
-      });
+            variables: { id: productGid, handle },
+          }),
+        },
+      );
 
       const payload = (await response.json()) as ShopifyProductResponse;
       if (!response.ok || payload.errors?.length) {

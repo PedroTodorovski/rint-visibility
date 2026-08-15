@@ -10,7 +10,9 @@ const COMMAND_TIMEOUT_MS = readPositiveIntegerEnv("SUPABASE_DB_PUSH_TIMEOUT_MS",
 
 if (!databaseUrl) {
   console.error("Missing required secret SUPABASE_DB_URL.");
-  console.error("Use a Postgres connection string reachable from GitHub Actions, such as the Supabase Session Pooler.");
+  console.error(
+    "Use a Postgres connection string reachable from GitHub Actions, such as the Supabase Session Pooler.",
+  );
   process.exit(1);
 }
 
@@ -21,7 +23,9 @@ if (dryRun) {
 }
 
 for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
-  console.log(`Running migration push attempt ${attempt}/${MAX_ATTEMPTS}${dryRun ? " (dry-run)" : ""}...`);
+  console.log(
+    `Running migration push attempt ${attempt}/${MAX_ATTEMPTS}${dryRun ? " (dry-run)" : ""}...`,
+  );
 
   const result = spawnSync("supabase", args, {
     encoding: "utf8",

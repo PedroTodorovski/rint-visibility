@@ -34,7 +34,10 @@ function normalizePropertyId(propertyId: string): string {
   return propertyId.replace(/^properties\//, "").trim();
 }
 
-async function refreshAccessToken(credentials: Ga4PortCredentials, fetchImpl: typeof fetch): Promise<string> {
+async function refreshAccessToken(
+  credentials: Ga4PortCredentials,
+  fetchImpl: typeof fetch,
+): Promise<string> {
   if (!credentials.refreshToken || !credentials.clientId || !credentials.clientSecret) {
     return credentials.accessToken;
   }

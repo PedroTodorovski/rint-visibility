@@ -1,27 +1,27 @@
 import type { AppConfig } from "../config.js";
 import { AppError } from "../lib/errors.js";
-import { filterAliveUrls } from "../lib/url-validator.js";
 import type { LlmClients, LlmStructuredDiagnosticResult } from "../lib/llm/index.js";
+import { filterAliveUrls } from "../lib/url-validator.js";
 import { createIntegrationPorts } from "../ports/mock-adapters.js";
 import { DEFAULT_PORT_TTL_MS, readThroughCache } from "../ports/read-through-cache.js";
 import type { IntegrationRegistryConfig } from "../ports/types.js";
-import type { VisibilityRepositories } from "../repositories/index.js";
 import type { DiagnosticQueryRow, DiagnosticSkuRow } from "../repositories/diagnostic-tables.js";
+import type { VisibilityRepositories } from "../repositories/index.js";
 import type { ProductRow, PromptRow, StoreRow } from "../repositories/types.js";
-import { buildDiagnosticOutput } from "./diagnostic-output.js";
 import {
   assertRunLimits,
   groupQueriesByProduct,
   validateAndSnapshotSku,
 } from "./diagnostic-input.js";
+import { buildDiagnosticOutput } from "./diagnostic-output.js";
+import { computeTriage } from "./diagnostic-triage.js";
 import {
-  normalizeDiagnosticPlan,
-  runConfigForPlan,
   type DiagnosticPlan,
   type DiagnosticRunConfig,
+  normalizeDiagnosticPlan,
   type QueryExecutionRecord,
+  runConfigForPlan,
 } from "./diagnostic-types.js";
-import { computeTriage } from "./diagnostic-triage.js";
 
 export type DominantDiagnosticJobPayload = {
   jobId: string;
@@ -38,7 +38,11 @@ type RunnerDeps = {
 
 function requireShopifyConnection(integrationConfig: IntegrationRegistryConfig | undefined): void {
   if (!integrationConfig?.shopify?.shopDomain) {
-    throw new AppError(400, "VALIDATION_ERROR", "Shopify precisa estar conectado para rodar diagnóstico");
+    throw new AppError(
+      400,
+      "VALIDATION_ERROR",
+      "Shopify precisa estar conectado para rodar diagnóstico",
+    );
   }
 }
 
@@ -46,7 +50,10 @@ function primaryRef(product: ProductRow): string {
   return product.external_ref ?? product.id;
 }
 
-function planSnapshot(config: DiagnosticRunConfig, integrationConfig: IntegrationRegistryConfig | undefined) {
+function planSnapshot(
+  config: DiagnosticRunConfig,
+  integrationConfig: IntegrationRegistryConfig | undefined,
+) {
   return {
     plan: config.plan,
     phase: config.phase,
@@ -123,15 +130,13 @@ export function selectDominantSku(
   };
 }
 
-async function executeQuery(
-  input: {
-    store: StoreRow;
-    sku: DiagnosticSkuRow;
-    prompt: PromptRow;
-    llm: LlmClients;
-    config: DiagnosticRunConfig;
-  },
-): Promise<Omit<DiagnosticQueryRow, "id" | "created_at">> {
+async function executeQuery(input: {
+  store: StoreRow;
+  sku: DiagnosticSkuRow;
+  prompt: PromptRow;
+  llm: LlmClients;
+  config: DiagnosticRunConfig;
+}): Promise<Omit<DiagnosticQueryRow, "id" | "created_at">> {
   if (!input.llm.gemini.diagnoseQuery) {
     throw new Error("Gemini diagnostic client is not configured");
   }
@@ -167,14 +172,26 @@ async function executeQuery(
     });
   }
 
-  const citedCount = executions.filter((execution) => execution.structured.cliente_foi_citado).length;
+  const citedCount = executions.filter(
+    (execution) => execution.structured.cliente_foi_citado,
+  ).length;
   const clientCited = citedCount >= Math.ceil(input.config.executionsPerQuery / 2);
-  const competitorName = majority(executions, (execution) => execution.structured.concorrente_citado_nome);
-  const competitorUrl = majority(executions, (execution) => execution.structured.concorrente_citado_url);
+  const competitorName = majority(
+    executions,
+    (execution) => execution.structured.concorrente_citado_nome,
+  );
+  const competitorUrl = majority(
+    executions,
+    (execution) => execution.structured.concorrente_citado_url,
+  );
   const attrs = [
-    ...new Set(executions.flatMap((execution) => execution.structured.atributos_mencionados_gemini)),
+    ...new Set(
+      executions.flatMap((execution) => execution.structured.atributos_mencionados_gemini),
+    ),
   ];
-  const citedPrice = executions.find((execution) => execution.structured.preco_citado)?.structured.preco_citado ?? null;
+  const citedPrice =
+    executions.find((execution) => execution.structured.preco_citado)?.structured.preco_citado ??
+    null;
   const brand = majority(executions, (execution) => execution.structured.nome_marca_citada);
   const product = majority(executions, (execution) => execution.structured.produto_mencionado);
 
@@ -235,7 +252,9 @@ export async function runDominantDiagnostic(
     maxQueriesPerSku: deps.config.diagnosticMaxQueriesPerSku,
   });
 
-  const job = await deps.repos.jobs.updateStatus(payload.jobId, "running", { started_at: startedAt });
+  const job = await deps.repos.jobs.updateStatus(payload.jobId, "running", {
+    started_at: startedAt,
+  });
 
   try {
     requireShopifyConnection(payload.integrationConfig);
@@ -252,7 +271,11 @@ export async function runDominantDiagnostic(
 
     const activePrompts = prompts.filter((prompt) => prompt.active);
     if (activePrompts.length === 0) {
-      throw new AppError(400, "VALIDATION_ERROR", "Nenhuma query ativa configurada para diagnóstico");
+      throw new AppError(
+        400,
+        "VALIDATION_ERROR",
+        "Nenhuma query ativa configurada para diagnóstico",
+      );
     }
 
     const products = productsAll.sort((a, b) => a.position - b.position);
@@ -296,26 +319,57 @@ export async function runDominantDiagnostic(
     const { primary, selection: dominantSkuSelection } = selectDominantSku(skuRows, queryRows);
     const cacheKeyBase = `${window.start}:${window.end}`;
     const ref = primary.product.external_ref ?? primary.product.id;
-    const [ga4Read, shopifyRead, metaRead, googleAdsRead, merchantRead, trendsRead] = await Promise.all([
-      readThroughCache(deps.repos.perRunReadCache, payload.jobId, "ga4", `ai-referral:${cacheKeyBase}`, DEFAULT_PORT_TTL_MS, () =>
-        ports.ga4.getAiReferralRevenue(window),
-      ),
-      readThroughCache(deps.repos.perRunReadCache, payload.jobId, "shopify", `revenue:${ref}:${cacheKeyBase}`, DEFAULT_PORT_TTL_MS, () =>
-        ports.shopify.getSkuRevenue(ref, window),
-      ),
-      readThroughCache(deps.repos.perRunReadCache, payload.jobId, "meta", `cac:${ref}:${cacheKeyBase}`, DEFAULT_PORT_TTL_MS, () =>
-        ports.meta.getSkuCac(ref, window),
-      ),
-      readThroughCache(deps.repos.perRunReadCache, payload.jobId, "google_ads", `waste:${ref}:${cacheKeyBase}`, DEFAULT_PORT_TTL_MS, () =>
-        ports.googleAds.getSkuWaste(ref, window),
-      ),
-      readThroughCache(deps.repos.perRunReadCache, payload.jobId, "merchant_center", `status:${ref}:${cacheKeyBase}`, DEFAULT_PORT_TTL_MS, () =>
-        ports.merchantCenter.getProductStatus(ref, window),
-      ),
-      readThroughCache(deps.repos.perRunReadCache, payload.jobId, "google_trends", `interest:${primary.row.shopify_data.name}:${cacheKeyBase}`, DEFAULT_PORT_TTL_MS, () =>
-        ports.googleTrends.getInterest(primary.row.shopify_data.name, window),
-      ),
-    ]);
+    const [ga4Read, shopifyRead, metaRead, googleAdsRead, merchantRead, trendsRead] =
+      await Promise.all([
+        readThroughCache(
+          deps.repos.perRunReadCache,
+          payload.jobId,
+          "ga4",
+          `ai-referral:${cacheKeyBase}`,
+          DEFAULT_PORT_TTL_MS,
+          () => ports.ga4.getAiReferralRevenue(window),
+        ),
+        readThroughCache(
+          deps.repos.perRunReadCache,
+          payload.jobId,
+          "shopify",
+          `revenue:${ref}:${cacheKeyBase}`,
+          DEFAULT_PORT_TTL_MS,
+          () => ports.shopify.getSkuRevenue(ref, window),
+        ),
+        readThroughCache(
+          deps.repos.perRunReadCache,
+          payload.jobId,
+          "meta",
+          `cac:${ref}:${cacheKeyBase}`,
+          DEFAULT_PORT_TTL_MS,
+          () => ports.meta.getSkuCac(ref, window),
+        ),
+        readThroughCache(
+          deps.repos.perRunReadCache,
+          payload.jobId,
+          "google_ads",
+          `waste:${ref}:${cacheKeyBase}`,
+          DEFAULT_PORT_TTL_MS,
+          () => ports.googleAds.getSkuWaste(ref, window),
+        ),
+        readThroughCache(
+          deps.repos.perRunReadCache,
+          payload.jobId,
+          "merchant_center",
+          `status:${ref}:${cacheKeyBase}`,
+          DEFAULT_PORT_TTL_MS,
+          () => ports.merchantCenter.getProductStatus(ref, window),
+        ),
+        readThroughCache(
+          deps.repos.perRunReadCache,
+          payload.jobId,
+          "google_trends",
+          `interest:${primary.row.shopify_data.name}:${cacheKeyBase}`,
+          DEFAULT_PORT_TTL_MS,
+          () => ports.googleTrends.getInterest(primary.row.shopify_data.name, window),
+        ),
+      ]);
 
     const conversion = ports.ga4.getSkuConversionMetrics
       ? await readThroughCache(
@@ -328,7 +382,11 @@ export async function runDominantDiagnostic(
         )
       : null;
 
-    const competitorUrls = [...new Set(queryRows.map((query) => query.concorrente_citado_url).filter(Boolean) as string[])];
+    const competitorUrls = [
+      ...new Set(
+        queryRows.map((query) => query.concorrente_citado_url).filter(Boolean) as string[],
+      ),
+    ];
     const seoGaps = await Promise.all(
       competitorUrls.map((competitorUrl) =>
         ports.seo.getAuthorityGap({ competitorUrl, clientDomain: store.domain }),

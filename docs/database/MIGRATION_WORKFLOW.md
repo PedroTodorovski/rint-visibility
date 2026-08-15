@@ -34,10 +34,10 @@ This workflow is mandatory for all Rint v1 schema and policy changes.
 
 Database GitHub Actions must stay on runtime versions that GitHub currently supports:
 
-- `actions/checkout@v6`
-- `actions/setup-node@v6`
+- `actions/checkout@v7`
+- `actions/setup-node@v7` with `node-version-file: ".nvmrc"`
 - Node.js `24` for jobs that run project scripts
-- `supabase/setup-cli@v2` with a pinned `SUPABASE_CLI_VERSION`
+- `supabase/setup-cli@v2` with a pinned `SUPABASE_CLI_VERSION` (currently `2.114.0`)
 
 ## SQL Requirements
 

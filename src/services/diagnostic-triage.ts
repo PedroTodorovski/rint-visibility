@@ -1,11 +1,16 @@
 import type {
+  GoogleAdsSkuWaste,
+  MerchantCenterProductStatus,
+  MetaSkuCac,
+  ShopifySkuRevenue,
+} from "../ports/types.js";
+import type { DiagnosticQueryRow } from "../repositories/diagnostic-tables.js";
+import type {
   CoherenceLevel,
   DiagnosticTrack,
   GeminiStructuredOutput,
   ShopifyProductSnapshot,
 } from "./diagnostic-types.js";
-import type { DiagnosticQueryRow } from "../repositories/diagnostic-tables.js";
-import type { GoogleAdsSkuWaste, MerchantCenterProductStatus, MetaSkuCac, ShopifySkuRevenue } from "../ports/types.js";
 
 export type TriageInput = {
   skus: Array<{ id: string; shopify: ShopifyProductSnapshot }>;
@@ -42,16 +47,23 @@ function attributesExist(cited: string[], real: string[]): boolean | null {
   if (cited.length === 0) return null;
   const realText = normalized(real.join(" "));
   return cited.every((attribute) => {
-    const token = normalized(attribute).split(/\W+/).filter((part) => part.length >= 3)[0];
+    const token = normalized(attribute)
+      .split(/\W+/)
+      .filter((part) => part.length >= 3)[0];
     return token ? realText.includes(token) : false;
   });
 }
 
-function brandMatches(structured: GeminiStructuredOutput, shopify: ShopifyProductSnapshot): boolean | null {
+function brandMatches(
+  structured: GeminiStructuredOutput,
+  shopify: ShopifyProductSnapshot,
+): boolean | null {
   const cited = normalized(structured.nome_marca_citada ?? structured.produto_mencionado);
   if (!cited) return null;
   const realNames = [shopify.name, shopify.brand].map(normalized).filter(Boolean);
-  return realNames.some((name) => name.includes(cited) || cited.includes(name.split(/\s+/)[0] ?? name));
+  return realNames.some(
+    (name) => name.includes(cited) || cited.includes(name.split(/\s+/)[0] ?? name),
+  );
 }
 
 function hasMediaWaste(signals: TriageInput["mediaSignals"]): boolean {
@@ -59,7 +71,11 @@ function hasMediaWaste(signals: TriageInput["mediaSignals"]): boolean {
   if (typeof googleWaste === "number" && googleWaste > 0) return true;
 
   const merchant = signals?.merchantCenter;
-  if (merchant?.approved === false || merchant?.gtinValid === false || merchant?.priceMatchesShopify === false) {
+  if (
+    merchant?.approved === false ||
+    merchant?.gtinValid === false ||
+    merchant?.priceMatchesShopify === false
+  ) {
     return true;
   }
 
@@ -95,7 +111,9 @@ export function computeTriage(input: TriageInput): TriageOutcome {
   }
 
   const clientCited = input.queries.some((query) => query.cliente_foi_citado);
-  const competitorCited = input.queries.some((query) => query.concorrente_citado_nome || query.concorrente_citado_url);
+  const competitorCited = input.queries.some(
+    (query) => query.concorrente_citado_nome || query.concorrente_citado_url,
+  );
 
   let coherenceLevel: CoherenceLevel = "coerente";
   if (hardMismatch) coherenceLevel = "incoerente";

@@ -47,10 +47,7 @@ export class PromptsRepository {
     }
 
     if (input.product_id) {
-      const activeForProduct = await this.countActiveByProductId(
-        storeId,
-        input.product_id,
-      );
+      const activeForProduct = await this.countActiveByProductId(storeId, input.product_id);
       const willBeActive = input.active ?? true;
       if (willBeActive && activeForProduct >= MAX_PROMPTS_PER_PRODUCT) {
         throw limitExceeded(

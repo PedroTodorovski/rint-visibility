@@ -18,9 +18,6 @@ export async function registerHealthRoute(app: FastifyInstance, config: AppConfi
       timestamp: new Date().toISOString(),
     };
 
-    return reply
-      .header("cache-control", "no-store, max-age=0")
-      .code(200)
-      .send(body);
+    return reply.header("cache-control", "no-store, max-age=0").code(200).send(body);
   });
 }

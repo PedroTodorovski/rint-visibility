@@ -1,10 +1,9 @@
 import type { FastifyInstance } from "fastify";
-
+import type { AppConfig } from "../../config.js";
+import { createLlmClients } from "../../lib/llm/index.js";
 import { requireWorkspaceId } from "../../lib/request.js";
 import type { VisibilityRepositories } from "../../repositories/index.js";
 import { runProbeForWorkspace } from "../../services/probe-runner.js";
-import type { AppConfig } from "../../config.js";
-import { createLlmClients } from "../../lib/llm/index.js";
 
 export async function registerProbeRoutes(
   app: FastifyInstance,

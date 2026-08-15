@@ -66,7 +66,9 @@ console.log("db:guard passed");
 
 function requireValidFileName(fileName) {
   if (!migrationFilePattern.test(fileName)) {
-    failures.push(`${fileName} has an invalid migration file name. Expected YYYYMMDDHHMMSS_description.sql.`);
+    failures.push(
+      `${fileName} has an invalid migration file name. Expected YYYYMMDDHHMMSS_description.sql.`,
+    );
   }
 }
 
@@ -97,7 +99,9 @@ function forbidDestructiveSql(sql, executableSql, fileName) {
     return;
   }
 
-  failures.push(`${fileName} contains destructive SQL without '-- rint:allow-destructive <ticket-id>'.`);
+  failures.push(
+    `${fileName} contains destructive SQL without '-- rint:allow-destructive <ticket-id>'.`,
+  );
 }
 
 function guardSchemaOwnership(sql, fileName) {
@@ -106,19 +110,47 @@ function guardSchemaOwnership(sql, fileName) {
     /\b(?:create(?:\s+or\s+replace)?\s+(?:table|view|materialized\s+view|function|type|sequence)|alter\s+(?:table|view|materialized\s+view|function|type|sequence))\s+(?:if\s+(?:not\s+)?exists\s+)?([a-z0-9_".]+)/g;
   const alterSchemaPattern = /\balter\s+schema\s+([a-z0-9_".]+)/g;
   const alterIndexPattern = /\balter\s+index\s+(?:if\s+exists\s+)?([a-z0-9_".]+)/g;
-  const directDropPattern = /\b(?:drop|truncate)\s+(?:schema|table|view|materialized\s+view|function|type|sequence|index)\s+(?:if\s+exists\s+)?([a-z0-9_".]+)/g;
+  const directDropPattern =
+    /\b(?:drop|truncate)\s+(?:schema|table|view|materialized\s+view|function|type|sequence|index)\s+(?:if\s+exists\s+)?([a-z0-9_".]+)/g;
   const quotedOrBareName = String.raw`(?:"[^"]+"|[a-z0-9_]+)`;
-  const createPolicyPattern = new RegExp(String.raw`\bcreate\s+policy\s+${quotedOrBareName}\s+on\s+([a-z0-9_".]+)`, "g");
-  const alterPolicyPattern = new RegExp(String.raw`\balter\s+policy\s+${quotedOrBareName}\s+on\s+([a-z0-9_".]+)`, "g");
-  const dropPolicyPattern = new RegExp(String.raw`\bdrop\s+policy\s+(?:if\s+exists\s+)?${quotedOrBareName}\s+on\s+([a-z0-9_".]+)`, "g");
-  const createIndexPattern = new RegExp(String.raw`\bcreate\s+(?:unique\s+)?index\s+(?:concurrently\s+)?(?:if\s+not\s+exists\s+)?${quotedOrBareName}\s+on\s+(?:only\s+)?([a-z0-9_".]+)`, "g");
-  const createTriggerPattern = new RegExp(String.raw`\bcreate\s+trigger\s+${quotedOrBareName}[\s\S]*?\bon\s+([a-z0-9_".]+)`, "g");
-  const alterTriggerPattern = new RegExp(String.raw`\balter\s+trigger\s+${quotedOrBareName}\s+on\s+([a-z0-9_".]+)`, "g");
-  const dropTriggerPattern = new RegExp(String.raw`\bdrop\s+trigger\s+(?:if\s+exists\s+)?${quotedOrBareName}\s+on\s+([a-z0-9_".]+)`, "g");
+  const createPolicyPattern = new RegExp(
+    String.raw`\bcreate\s+policy\s+${quotedOrBareName}\s+on\s+([a-z0-9_".]+)`,
+    "g",
+  );
+  const alterPolicyPattern = new RegExp(
+    String.raw`\balter\s+policy\s+${quotedOrBareName}\s+on\s+([a-z0-9_".]+)`,
+    "g",
+  );
+  const dropPolicyPattern = new RegExp(
+    String.raw`\bdrop\s+policy\s+(?:if\s+exists\s+)?${quotedOrBareName}\s+on\s+([a-z0-9_".]+)`,
+    "g",
+  );
+  const createIndexPattern = new RegExp(
+    String.raw`\bcreate\s+(?:unique\s+)?index\s+(?:concurrently\s+)?(?:if\s+not\s+exists\s+)?${quotedOrBareName}\s+on\s+(?:only\s+)?([a-z0-9_".]+)`,
+    "g",
+  );
+  const createTriggerPattern = new RegExp(
+    String.raw`\bcreate\s+trigger\s+${quotedOrBareName}[\s\S]*?\bon\s+([a-z0-9_".]+)`,
+    "g",
+  );
+  const alterTriggerPattern = new RegExp(
+    String.raw`\balter\s+trigger\s+${quotedOrBareName}\s+on\s+([a-z0-9_".]+)`,
+    "g",
+  );
+  const dropTriggerPattern = new RegExp(
+    String.raw`\bdrop\s+trigger\s+(?:if\s+exists\s+)?${quotedOrBareName}\s+on\s+([a-z0-9_".]+)`,
+    "g",
+  );
   const commentPattern =
     /\bcomment\s+on\s+(?:schema|table|view|materialized\s+view|function|type|sequence|column|index)\s+([a-z0-9_".]+)/g;
-  const commentPolicyPattern = new RegExp(String.raw`\bcomment\s+on\s+policy\s+${quotedOrBareName}\s+on\s+([a-z0-9_".]+)`, "g");
-  const commentTriggerPattern = new RegExp(String.raw`\bcomment\s+on\s+trigger\s+${quotedOrBareName}\s+on\s+([a-z0-9_".]+)`, "g");
+  const commentPolicyPattern = new RegExp(
+    String.raw`\bcomment\s+on\s+policy\s+${quotedOrBareName}\s+on\s+([a-z0-9_".]+)`,
+    "g",
+  );
+  const commentTriggerPattern = new RegExp(
+    String.raw`\bcomment\s+on\s+trigger\s+${quotedOrBareName}\s+on\s+([a-z0-9_".]+)`,
+    "g",
+  );
   const grantPattern =
     /\b(?:grant|revoke)\b[\s\S]*?\bon\s+(?:schema|table|view|materialized\s+view|function|sequence|all\s+tables\s+in\s+schema|all\s+sequences\s+in\s+schema|all\s+functions\s+in\s+schema)\s+([a-z0-9_".]+)/g;
 
@@ -154,13 +186,17 @@ function guardSchemaOwnership(sql, fileName) {
 }
 
 function requireRlsForCreatedTables(sql, fileName) {
-  const createdTables = [...sql.matchAll(/\bcreate\s+table\s+(?:if\s+not\s+exists\s+)?([a-z0-9_".]+)/g)]
+  const createdTables = [
+    ...sql.matchAll(/\bcreate\s+table\s+(?:if\s+not\s+exists\s+)?([a-z0-9_".]+)/g),
+  ]
     .map((match) => normalizeSqlIdentifier(match[1]))
     .filter((tableName) => tableName.startsWith(`${moduleSchema}.`));
 
   for (const tableName of createdTables) {
     const escapedTableName = escapeRegExp(tableName);
-    const rlsPattern = new RegExp(`\\balter\\s+table\\s+${escapedTableName}\\s+enable\\s+row\\s+level\\s+security\\b`);
+    const rlsPattern = new RegExp(
+      `\\balter\\s+table\\s+${escapedTableName}\\s+enable\\s+row\\s+level\\s+security\\b`,
+    );
 
     if (!rlsPattern.test(sql)) {
       failures.push(`${fileName} creates '${tableName}' without enabling row level security.`);
@@ -180,17 +216,23 @@ function assertModuleOwnedIdentifier(identifier, fileName) {
   }
 
   if (!objectName.includes(".")) {
-    failures.push(`${fileName} references unqualified object '${objectName}'. Migration objects must be schema-qualified under ${moduleSchema}.`);
+    failures.push(
+      `${fileName} references unqualified object '${objectName}'. Migration objects must be schema-qualified under ${moduleSchema}.`,
+    );
     return;
   }
 
-  failures.push(`${fileName} mutates '${objectName}' outside ${moduleSchema}. Cross-repo schema changes must live in the owning repository.`);
+  failures.push(
+    `${fileName} mutates '${objectName}' outside ${moduleSchema}. Cross-repo schema changes must live in the owning repository.`,
+  );
 }
 
 function firstIdentifierToken(identifier) {
-  return normalizeSqlIdentifier(identifier)
-    .split(/\s+/)[0]
-    ?.replace(/[();,]+$/g, "") ?? "";
+  return (
+    normalizeSqlIdentifier(identifier)
+      .split(/\s+/)[0]
+      ?.replace(/[();,]+$/g, "") ?? ""
+  );
 }
 
 function escapeRegExp(value) {
@@ -198,7 +240,5 @@ function escapeRegExp(value) {
 }
 
 function stripSqlComments(sql) {
-  return sql
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/--.*$/gm, "");
+  return sql.replace(/\/\*[\s\S]*?\*\//g, "").replace(/--.*$/gm, "");
 }
