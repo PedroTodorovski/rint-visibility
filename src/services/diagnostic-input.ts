@@ -1,10 +1,11 @@
 import { validationError } from "../lib/errors.js";
 import { validateUrlAlive } from "../lib/url-validator.js";
+import type { ShopifyProductSnapshotPort } from "../ports/types.js";
 import type { ProductRow, PromptRow } from "../repositories/types.js";
 import type { DiagnosticRunConfig, ShopifyProductSnapshot } from "./diagnostic-types.js";
-import type { ShopifyProductSnapshotPort } from "../ports/types.js";
 
-const CATEGORY_PATH_RE = /\/(collections?|categor(?:y|ia|ias)|departamento|search|pages?|blogs?)(\/|$)/i;
+const CATEGORY_PATH_RE =
+  /\/(collections?|categor(?:y|ia|ias)|departamento|search|pages?|blogs?)(\/|$)/i;
 
 export function isLikelyPdpUrl(url: string): boolean {
   try {
@@ -37,7 +38,10 @@ export function assertRunLimits(
   }
 }
 
-export function groupQueriesByProduct(products: ProductRow[], prompts: PromptRow[]): Map<string, PromptRow[]> {
+export function groupQueriesByProduct(
+  products: ProductRow[],
+  prompts: PromptRow[],
+): Map<string, PromptRow[]> {
   const active = prompts.filter((prompt) => prompt.active);
   const scoped = active.filter((prompt) => prompt.product_id);
   const legacy = active.filter((prompt) => !prompt.product_id);
@@ -53,7 +57,9 @@ export function groupQueriesByProduct(products: ProductRow[], prompts: PromptRow
     return map;
   }
 
-  const sortedLegacy = legacy.sort((a, b) => a.sort_order - b.sort_order || a.created_at.localeCompare(b.created_at));
+  const sortedLegacy = legacy.sort(
+    (a, b) => a.sort_order - b.sort_order || a.created_at.localeCompare(b.created_at),
+  );
   for (const product of products) {
     map.set(product.id, sortedLegacy);
   }

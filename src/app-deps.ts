@@ -5,9 +5,9 @@ import { hasSupabaseConfig } from "./config.js";
 import { createRepositories, type VisibilityRepositories } from "./repositories/index.js";
 import { registerDiagnosticsRoutes } from "./routes/v1/diagnostics.js";
 import { registerProbeRunRoutes } from "./routes/v1/probe-runs.js";
+import { registerProbeRoutes } from "./routes/v1/probes.js";
 import { registerProductRoutes } from "./routes/v1/products.js";
 import { registerPromptRoutes } from "./routes/v1/prompts.js";
-import { registerProbeRoutes } from "./routes/v1/probes.js";
 import { registerResultRoutes } from "./routes/v1/results.js";
 import { registerScoreRoutes } from "./routes/v1/scores.js";
 import { registerStoreRoutes } from "./routes/v1/stores.js";
@@ -84,7 +84,8 @@ export async function registerCrudRoutes(
   await registerPromptRoutes(app, repositories);
   await registerProbeRoutes(app, repositories, config);
   await registerProbeRunRoutes(app, repositories);
-  const diagnosticQueue = deps.diagnosticQueue ?? createDiagnosticQueue({ repos: repositories, config });
+  const diagnosticQueue =
+    deps.diagnosticQueue ?? createDiagnosticQueue({ repos: repositories, config });
   await registerDiagnosticsRoutes(app, repositories, config, diagnosticQueue);
   await registerScoreRoutes(app, repositories);
   await registerResultRoutes(app, repositories);

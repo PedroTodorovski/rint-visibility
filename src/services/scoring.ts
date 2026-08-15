@@ -1,5 +1,4 @@
-import type { ProductRow, PromptRow, StoreRow } from "../repositories/types.js";
-import type { CatalogFix, ResultProvider } from "../repositories/types.js";
+import type { CatalogFix, ProductRow, PromptRow, ResultProvider } from "../repositories/types.js";
 
 export type FailedSlot = {
   prompt: PromptRow;
@@ -25,7 +24,8 @@ export function generateCatalogFixes(
     ),
   ].slice(0, 6);
 
-  const keywordPhrase = keywords.length > 0 ? keywords.join(", ") : "termos que compradores usam na IA";
+  const keywordPhrase =
+    keywords.length > 0 ? keywords.join(", ") : "termos que compradores usam na IA";
 
   for (const product of products) {
     if (fixes.length >= 3) break;
@@ -89,9 +89,7 @@ export function aggregateScore(
   const citationSlotsTotal = promptCount * providerCount;
   const citationsCount = results.filter((r) => r.cited).length;
   const scorePct =
-    citationSlotsTotal > 0
-      ? Math.round((citationsCount / citationSlotsTotal) * 10000) / 100
-      : 0;
+    citationSlotsTotal > 0 ? Math.round((citationsCount / citationSlotsTotal) * 10000) / 100 : 0;
 
   return { citationSlotsTotal, citationsCount, scorePct, promptsTotal: promptCount };
 }

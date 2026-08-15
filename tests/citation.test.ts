@@ -55,10 +55,7 @@ describe("detectCitation", () => {
       productUrls: [],
       promptText: "Sofá em caixa pela internet",
     };
-    const result = detectCitation(
-      "Marcas como Sofá na Caixa lideram esse segmento.",
-      inflow,
-    );
+    const result = detectCitation("Marcas como Sofá na Caixa lideram esse segmento.", inflow);
     expect(result.cited).toBe(false);
     expect(result.whyCode).toBe("uncited_competitor");
   });
@@ -119,8 +116,10 @@ Para sofás modulares em bege bouclé, você tem excelentes opções em https://
     expect(result.excerpt).toMatch(/Inflow/i);
     expect(result.excerpt).not.toMatch(/compr$/);
     expect(result.excerpt).toMatch(/compra\.?/);
-    expect(result.highlightSpans.some((s) => result.excerpt.slice(s.start, s.end).toLowerCase().includes("inflow"))).toBe(
-      true,
-    );
+    expect(
+      result.highlightSpans.some((s) =>
+        result.excerpt.slice(s.start, s.end).toLowerCase().includes("inflow"),
+      ),
+    ).toBe(true);
   });
 });

@@ -1,11 +1,6 @@
 import type { FastifyInstance } from "fastify";
-
-import {
-  optionalString,
-  requireNonEmptyString,
-  requireWorkspaceId,
-} from "../../lib/request.js";
 import { validationError } from "../../lib/errors.js";
+import { optionalString, requireNonEmptyString, requireWorkspaceId } from "../../lib/request.js";
 import type { VisibilityRepositories } from "../../repositories/index.js";
 import type { StoreStatus, UpsertStoreInput } from "../../repositories/types.js";
 

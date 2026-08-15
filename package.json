@@ -14,21 +14,26 @@
     "start": "node dist/server.js",
     "start:worker": "node dist/worker.js",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "verify": "npm run typecheck && npm test && npm run db:guard",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "verify": "npm run typecheck && npm test && npm run db:guard && npm run lint",
     "test": "vitest run",
     "test:watch": "vitest",
     "db:guard": "node scripts/db/guard-migrations.mjs",
     "db:guard:history": "node scripts/db/guard-history.mjs"
   },
+  "packageManager": "npm@11.19.0",
   "dependencies": {
-    "@supabase/supabase-js": "^2.108.2",
-    "bullmq": "^5.79.2",
-    "fastify": "^5.6.1"
+    "@supabase/supabase-js": "^2.112.3",
+    "bullmq": "^6.1.1",
+    "fastify": "^5.12.0",
+    "ioredis": "^5.11.1"
   },
   "devDependencies": {
-    "@types/node": "^25.9.3",
-    "tsx": "^4.20.6",
-    "typescript": "^5.9.3",
-    "vitest": "^3.2.4"
+    "@biomejs/biome": "2.5.8",
+    "@types/node": "^25.9.5",
+    "tsx": "^4.23.12",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.10"
   }
 }

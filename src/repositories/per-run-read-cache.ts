@@ -28,7 +28,11 @@ export type PerRunReadCacheRepositoryLike = {
 export class PerRunReadCacheRepository implements PerRunReadCacheRepositoryLike {
   constructor(private readonly db: VisibilityDb) {}
 
-  async get(probeRunId: string, portName: string, cacheKey: string): Promise<PerRunCacheRow | null> {
+  async get(
+    probeRunId: string,
+    portName: string,
+    cacheKey: string,
+  ): Promise<PerRunCacheRow | null> {
     const now = new Date().toISOString();
     const { data, error } = await this.db
       .from("per_run_read_cache")

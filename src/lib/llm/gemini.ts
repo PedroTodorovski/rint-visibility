@@ -2,12 +2,7 @@ import type { AppConfig } from "../../config.js";
 import { detectCitation } from "../citation.js";
 import { extractGroundingMetadata } from "../gemini-grounding.js";
 import { buildSingleProbeMessage } from "./batch-probe.js";
-import type {
-  LlmBatchProbeResult,
-  LlmClient,
-  LlmProbeResult,
-  LlmStructuredDiagnosticResult,
-} from "./types.js";
+import type { LlmClient, LlmProbeResult, LlmStructuredDiagnosticResult } from "./types.js";
 
 const DEFAULT_MODEL = "gemini-2.0-flash";
 
@@ -235,15 +230,19 @@ export function createGeminiClient(config: AppConfig): LlmClient {
 
     async diagnoseQuery(input): Promise<LlmStructuredDiagnosticResult> {
       if (!apiKey) {
-        const citation = detectCitation(`Recomendo avaliar ${input.productName} em ${input.productUrl}.`, {
-          storeName: input.storeName,
-          domain: input.domain,
-          productUrls: [input.productUrl],
-          promptText: input.query,
-        });
+        const citation = detectCitation(
+          `Recomendo avaliar ${input.productName} em ${input.productUrl}.`,
+          {
+            storeName: input.storeName,
+            domain: input.domain,
+            productUrls: [input.productUrl],
+            promptText: input.query,
+          },
+        );
 
         return {
-          rawText: citation.excerpt || `Recomendo avaliar ${input.productName} em ${input.productUrl}.`,
+          rawText:
+            citation.excerpt || `Recomendo avaliar ${input.productName} em ${input.productUrl}.`,
           structured: {
             cliente_foi_citado: citation.cited,
             concorrente_citado_nome: null,
@@ -290,21 +289,25 @@ export function createGeminiClient(config: AppConfig): LlmClient {
       }
 
       const structurePrompt = buildDiagnosticStructurePrompt(first.text);
-      const second = await callGeminiWithGrounding(apiKey, model, structurePrompt, input.temperature);
+      const second = await callGeminiWithGrounding(
+        apiKey,
+        model,
+        structurePrompt,
+        input.temperature,
+      );
       const structured = second?.text ? parseStructuredOutput(second.text) : null;
 
       return {
         rawText: first.text,
-        structured:
-          structured ?? {
-            cliente_foi_citado: false,
-            concorrente_citado_nome: null,
-            concorrente_citado_url: null,
-            atributos_mencionados_gemini: [],
-            preco_citado: null,
-            nome_marca_citada: null,
-            produto_mencionado: null,
-          },
+        structured: structured ?? {
+          cliente_foi_citado: false,
+          concorrente_citado_nome: null,
+          concorrente_citado_url: null,
+          atributos_mencionados_gemini: [],
+          preco_citado: null,
+          nome_marca_citada: null,
+          produto_mencionado: null,
+        },
         model,
         mocked: false,
         usedWebSearch: first.groundingUrls.length > 0 || (second?.groundingUrls.length ?? 0) > 0,

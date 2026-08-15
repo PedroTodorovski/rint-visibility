@@ -1,6 +1,4 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-
-import { mapPostgrestError } from "./postgrest.js";
 import type {
   CoherenceLevel,
   DiagnosticJobStatus,
@@ -9,6 +7,7 @@ import type {
   GeminiStructuredOutput,
   ShopifyProductSnapshot,
 } from "../services/diagnostic-types.js";
+import { mapPostgrestError } from "./postgrest.js";
 
 type VisibilityDb = SupabaseClient<any, "public", "rint">;
 

@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-
+import { validationError } from "../../lib/errors.js";
 import {
   optionalBoolean,
   optionalInteger,
@@ -7,7 +7,6 @@ import {
   requireNonEmptyString,
   requireWorkspaceId,
 } from "../../lib/request.js";
-import { validationError } from "../../lib/errors.js";
 import type { VisibilityRepositories } from "../../repositories/index.js";
 import type { CreatePromptInput, UpdatePromptInput } from "../../repositories/types.js";
 

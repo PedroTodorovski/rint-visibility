@@ -1,15 +1,4 @@
 import type {
-  DiagnosticTrack,
-  ShopifyProductSnapshot,
-} from "./diagnostic-types.js";
-import { aggregateCitationCounts, computeRevenueGap } from "./revenue-gap-engine.js";
-import type {
-  CreateDiagnosticInput,
-  CreateFinancialRiskInput,
-  DiagnosticQueryRow,
-  DiagnosticSkuRow,
-} from "../repositories/diagnostic-tables.js";
-import type {
   Ga4AiReferralRevenue,
   GoogleAdsSkuWaste,
   MerchantCenterProductStatus,
@@ -19,6 +8,14 @@ import type {
   ShopifySkuRevenue,
   TrendsInterest,
 } from "../ports/types.js";
+import type {
+  CreateDiagnosticInput,
+  CreateFinancialRiskInput,
+  DiagnosticQueryRow,
+  DiagnosticSkuRow,
+} from "../repositories/diagnostic-tables.js";
+import type { DiagnosticTrack, ShopifyProductSnapshot } from "./diagnostic-types.js";
+import { aggregateCitationCounts, computeRevenueGap } from "./revenue-gap-engine.js";
 
 export type DiagnosticOutputInput = {
   jobId: string;
@@ -57,11 +54,18 @@ function topCompetitorUrls(queries: DiagnosticQueryRow[]): string[] {
   ].slice(0, 5);
 }
 
-function missingMentionedAttributes(snapshot: ShopifyProductSnapshot, queries: DiagnosticQueryRow[]): string[] {
+function missingMentionedAttributes(
+  snapshot: ShopifyProductSnapshot,
+  queries: DiagnosticQueryRow[],
+): string[] {
   const mentioned = new Set(
-    queries.flatMap((query) => query.atributos_mencionados_gemini.map((attr) => attr.toLowerCase())),
+    queries.flatMap((query) =>
+      query.atributos_mencionados_gemini.map((attr) => attr.toLowerCase()),
+    ),
   );
-  return snapshot.attributes.filter((attribute) => !mentioned.has(attribute.toLowerCase())).slice(0, 8);
+  return snapshot.attributes
+    .filter((attribute) => !mentioned.has(attribute.toLowerCase()))
+    .slice(0, 8);
 }
 
 export function buildDiagnosticOutput(input: DiagnosticOutputInput): DiagnosticOutput {
@@ -73,7 +77,8 @@ export function buildDiagnosticOutput(input: DiagnosticOutputInput): DiagnosticO
           query.concorrente_citado_nome || query.concorrente_citado_url
             ? [
                 {
-                  name: query.concorrente_citado_nome ?? query.concorrente_citado_url ?? "concorrente",
+                  name:
+                    query.concorrente_citado_nome ?? query.concorrente_citado_url ?? "concorrente",
                   url: query.concorrente_citado_url ?? undefined,
                   type: query.concorrente_citado_url ? "domain" : "brand",
                 },
@@ -159,9 +164,11 @@ export function buildDiagnosticOutput(input: DiagnosticOutputInput): DiagnosticO
         next_steps: {
           owner: "parceiro de conteúdo ou autoridade",
           first_action: "Produzir conteúdo de autoridade com atributos específicos do SKU.",
-          seo_api_phase_2: input.finance.seoGaps.length > 0 ? input.finance.seoGaps : unavailable("seo_api"),
+          seo_api_phase_2:
+            input.finance.seoGaps.length > 0 ? input.finance.seoGaps : unavailable("seo_api"),
         },
-        prazo: "variável — depende de frequência de indexação do Gemini e volume de conteúdo publicado",
+        prazo:
+          "variável — depende de frequência de indexação do Gemini e volume de conteúdo publicado",
       },
     };
   }
@@ -212,12 +219,17 @@ export function buildDiagnosticOutput(input: DiagnosticOutputInput): DiagnosticO
           },
         ],
         actions: [
-          { type: "conteudo", text: "Enriquecer atributos indexáveis pela IA.", missing_attributes: absentAttributes },
+          {
+            type: "conteudo",
+            text: "Enriquecer atributos indexáveis pela IA.",
+            missing_attributes: absentAttributes,
+          },
           { type: "tecnica", text: "Corrigir Schema.org, Open Graph, Canonical URL e Robots.txt." },
         ],
         next_steps: {
           owner: "parceiro de conteúdo ou agência técnica especializada na plataforma do cliente",
-          decision_rule: "Conteúdo se faltar informação; agência técnica se houver schema/canonical/robots incorretos.",
+          decision_rule:
+            "Conteúdo se faltar informação; agência técnica se houver schema/canonical/robots incorretos.",
         },
         prazo: "variável — dado a ser coletado em fase de testes",
       },
@@ -226,7 +238,9 @@ export function buildDiagnosticOutput(input: DiagnosticOutputInput): DiagnosticO
 
   if (input.track === "track_produto") {
     const competitorPrice =
-      input.queries.map((query) => query.gemini_structured.preco_citado).find((value) => value && value > 0) ?? null;
+      input.queries
+        .map((query) => query.gemini_structured.preco_citado)
+        .find((value) => value && value > 0) ?? null;
     const priceGap = competitorPrice ? shopifyData.currentPrice - competitorPrice : null;
     return {
       risks: [
@@ -236,14 +250,20 @@ export function buildDiagnosticOutput(input: DiagnosticOutputInput): DiagnosticO
           sku_id: input.primarySku.id,
           gap_value: priceGap,
           lost_clients: null,
-          compensation_cost: input.finance.meta.cac > input.finance.shopify.ticketMedio ? input.finance.meta.spend : null,
+          compensation_cost:
+            input.finance.meta.cac > input.finance.shopify.ticketMedio
+              ? input.finance.meta.spend
+              : null,
           formula_type: "product_price_margin_risk",
           inputs: {
             client_price: shopifyData.currentPrice,
             competitor_price: competitorPrice,
             cac_sku: input.finance.meta.cac,
             ticket_medio: input.finance.shopify.ticketMedio,
-            margin_signal: input.finance.meta.cac > input.finance.shopify.ticketMedio ? "cac_gt_ticket" : "not_detected",
+            margin_signal:
+              input.finance.meta.cac > input.finance.shopify.ticketMedio
+                ? "cac_gt_ticket"
+                : "not_detected",
           },
         },
       ],
@@ -252,8 +272,16 @@ export function buildDiagnosticOutput(input: DiagnosticOutputInput): DiagnosticO
         sku_id: input.primarySku.id,
         track: "track_produto",
         causes: [
-          { type: "preco_nao_competitivo", client_price: shopifyData.currentPrice, competitor_price: competitorPrice },
-          { type: "margem_insuficiente", cac_sku: input.finance.meta.cac, ticket_medio: input.finance.shopify.ticketMedio },
+          {
+            type: "preco_nao_competitivo",
+            client_price: shopifyData.currentPrice,
+            competitor_price: competitorPrice,
+          },
+          {
+            type: "margem_insuficiente",
+            cac_sku: input.finance.meta.cac,
+            ticket_medio: input.finance.shopify.ticketMedio,
+          },
           {
             type: "posicionamento_inadequado",
             mvp_signal: "inferido pelo perfil de queries que não geraram citação",
@@ -307,9 +335,19 @@ export function buildDiagnosticOutput(input: DiagnosticOutputInput): DiagnosticO
       sku_id: input.primarySku.id,
       track: "track_midia",
       causes: [
-        { type: "budget_mal_alocado", source: input.finance.googleAds ?? unavailable("google_ads") },
-        { type: "feed_com_erro", source: input.finance.merchantCenter ?? unavailable("merchant_center") },
-        { type: "cac_alto_por_sku", cac_sku: input.finance.meta.cac, ticket_medio: input.finance.shopify.ticketMedio },
+        {
+          type: "budget_mal_alocado",
+          source: input.finance.googleAds ?? unavailable("google_ads"),
+        },
+        {
+          type: "feed_com_erro",
+          source: input.finance.merchantCenter ?? unavailable("merchant_center"),
+        },
+        {
+          type: "cac_alto_por_sku",
+          cac_sku: input.finance.meta.cac,
+          ticket_medio: input.finance.shopify.ticketMedio,
+        },
       ],
       actions: [
         {
@@ -326,7 +364,9 @@ export function buildDiagnosticOutput(input: DiagnosticOutputInput): DiagnosticO
       next_steps: {
         owner: "gestor de mídia ou agência parceira certificada",
         recoverable_statement:
-          economy === null ? "economia potencial indisponível até conectar Google Ads/Merchant Center" : `R$ ${economy} recuperável em 1 a 2 semanas`,
+          economy === null
+            ? "economia potencial indisponível até conectar Google Ads/Merchant Center"
+            : `R$ ${economy} recuperável em 1 a 2 semanas`,
         no_direct_llm_causality_claim: true,
       },
       prazo: "1 a 2 semanas",

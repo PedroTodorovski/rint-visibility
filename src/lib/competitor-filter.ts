@@ -47,6 +47,9 @@ export function isJunkCompetitorName(name: string): boolean {
 }
 
 export function isUsefulCompetitorHost(host: string): boolean {
-  const normalized = host.replace(/^www\./, "").trim().toLowerCase();
+  const normalized = host
+    .replace(/^www\./, "")
+    .trim()
+    .toLowerCase();
   return normalized.includes(".") && !isJunkCompetitorName(normalized.split(".")[0] ?? "");
 }

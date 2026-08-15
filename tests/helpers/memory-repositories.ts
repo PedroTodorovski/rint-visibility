@@ -1,23 +1,5 @@
 import { randomUUID } from "node:crypto";
-
-import type { VisibilityRepositories } from "../../src/repositories/index.js";
-import type { CreateResultInput } from "../../src/repositories/results.js";
-import type { UpsertWeeklyScoreInput } from "../../src/repositories/weekly-scores.js";
-import type {
-  CreateProductInput,
-  CreatePromptInput,
-  ProbeRunRow,
-  ProbeRunStatus,
-  ProductRow,
-  PromptRow,
-  ResultRow,
-  ResultWithPrompt,
-  StoreRow,
-  UpdateProductInput,
-  UpdatePromptInput,
-  UpsertStoreInput,
-  WeeklyScoreRow,
-} from "../../src/repositories/types.js";
+import { limitExceeded, notFound } from "../../src/lib/errors.js";
 import type {
   CreateDiagnosticInput,
   CreateDiagnosticQueryInput,
@@ -34,9 +16,26 @@ import type {
   TriageResultRow,
   UsageEventRow,
 } from "../../src/repositories/diagnostic-tables.js";
-import type { DiagnosticJobStatus } from "../../src/services/diagnostic-types.js";
+import type { VisibilityRepositories } from "../../src/repositories/index.js";
+import type { CreateResultInput } from "../../src/repositories/results.js";
+import type {
+  CreateProductInput,
+  CreatePromptInput,
+  ProbeRunRow,
+  ProbeRunStatus,
+  ProductRow,
+  PromptRow,
+  ResultRow,
+  ResultWithPrompt,
+  StoreRow,
+  UpdateProductInput,
+  UpdatePromptInput,
+  UpsertStoreInput,
+  WeeklyScoreRow,
+} from "../../src/repositories/types.js";
 import { MAX_PRODUCTS_PER_STORE, MAX_PROMPTS_PER_STORE } from "../../src/repositories/types.js";
-import { limitExceeded, notFound } from "../../src/lib/errors.js";
+import type { UpsertWeeklyScoreInput } from "../../src/repositories/weekly-scores.js";
+import type { DiagnosticJobStatus } from "../../src/services/diagnostic-types.js";
 
 export function createMemoryRepositories(): VisibilityRepositories {
   const storesByWorkspace = new Map<string, StoreRow>();
@@ -46,8 +45,10 @@ export function createMemoryRepositories(): VisibilityRepositories {
   const resultsByProbeRun = new Map<string, ResultRow[]>();
   const weeklyScoresByStore = new Map<string, WeeklyScoreRow[]>();
   const portCacheStore = new Map<string, { payload: unknown; expires_at: string }>();
-  const lacunaSnapshotRows: import("../../src/repositories/lacuna-snapshots.js").LacunaSnapshotRow[] = [];
-  const dualTrackRows: import("../../src/repositories/dual-track-outputs.js").DualTrackOutputRow[] = [];
+  const lacunaSnapshotRows: import("../../src/repositories/lacuna-snapshots.js").LacunaSnapshotRow[] =
+    [];
+  const dualTrackRows: import("../../src/repositories/dual-track-outputs.js").DualTrackOutputRow[] =
+    [];
   const jobRows: JobRow[] = [];
   const diagnosticSkuRows: DiagnosticSkuRow[] = [];
   const diagnosticQueryRows: DiagnosticQueryRow[] = [];
@@ -103,7 +104,9 @@ export function createMemoryRepositories(): VisibilityRepositories {
       async create(storeId: string, input: CreateProductInput) {
         const existing = productsByStore.get(storeId) ?? [];
         if (existing.length >= MAX_PRODUCTS_PER_STORE) {
-          throw limitExceeded(`Store already has the maximum of ${MAX_PRODUCTS_PER_STORE} hero products`);
+          throw limitExceeded(
+            `Store already has the maximum of ${MAX_PRODUCTS_PER_STORE} hero products`,
+          );
         }
         const now = new Date().toISOString();
         const product: ProductRow = {
@@ -359,7 +362,13 @@ export function createMemoryRepositories(): VisibilityRepositories {
           expires_at: row.expires_at,
         };
       },
-      async set(probeRunId: string, portName: string, cacheKey: string, payload: unknown, expiresAt: string) {
+      async set(
+        probeRunId: string,
+        portName: string,
+        cacheKey: string,
+        payload: unknown,
+        expiresAt: string,
+      ) {
         const key = `${probeRunId}:${portName}:${cacheKey}`;
         portCacheStore.set(key, { payload, expires_at: expiresAt });
       },
@@ -434,7 +443,9 @@ export function createMemoryRepositories(): VisibilityRepositories {
           started_at: fields.started_at ?? jobRows[index]!.started_at,
           completed_at: fields.completed_at ?? jobRows[index]!.completed_at,
           error_message:
-            fields.error_message !== undefined ? fields.error_message : jobRows[index]!.error_message,
+            fields.error_message !== undefined
+              ? fields.error_message
+              : jobRows[index]!.error_message,
         };
         jobRows[index] = updated;
         return updated;
@@ -446,9 +457,11 @@ export function createMemoryRepositories(): VisibilityRepositories {
         return jobRows.find((row) => row.id === jobId) ?? null;
       },
       async findLatestByStoreId(storeId: string) {
-        return [...jobRows]
-          .filter((row) => row.store_id === storeId)
-          .sort((a, b) => b.created_at.localeCompare(a.created_at))[0] ?? null;
+        return (
+          [...jobRows]
+            .filter((row) => row.store_id === storeId)
+            .sort((a, b) => b.created_at.localeCompare(a.created_at))[0] ?? null
+        );
       },
     },
     diagnosticSkus: {

@@ -1,12 +1,11 @@
 import type { FastifyInstance } from "fastify";
-
-import { requireWorkspaceId } from "../../lib/request.js";
-import { notFound } from "../../lib/errors.js";
 import type { AppConfig } from "../../config.js";
+import { notFound } from "../../lib/errors.js";
+import { requireWorkspaceId } from "../../lib/request.js";
+import type { IntegrationRegistryConfig } from "../../ports/types.js";
 import type { VisibilityRepositories } from "../../repositories/index.js";
 import type { DiagnosticQueue } from "../../services/diagnostic-queue.js";
 import { normalizeDiagnosticPlan } from "../../services/diagnostic-types.js";
-import type { IntegrationRegistryConfig } from "../../ports/types.js";
 
 function parseRunBody(body: unknown): {
   plan: ReturnType<typeof normalizeDiagnosticPlan>;
@@ -14,9 +13,10 @@ function parseRunBody(body: unknown): {
   integrationConfig: IntegrationRegistryConfig | undefined;
 } {
   const record = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
-  const webhookUrl = typeof record.webhook_url === "string" && record.webhook_url.trim()
-    ? record.webhook_url.trim()
-    : null;
+  const webhookUrl =
+    typeof record.webhook_url === "string" && record.webhook_url.trim()
+      ? record.webhook_url.trim()
+      : null;
 
   return {
     plan: normalizeDiagnosticPlan(record.plan),

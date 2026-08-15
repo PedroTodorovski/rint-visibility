@@ -2,11 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { limitExceeded, notFound } from "../lib/errors.js";
 import { mapPostgrestError } from "./postgrest.js";
-import type {
-  CreateProductInput,
-  ProductRow,
-  UpdateProductInput,
-} from "./types.js";
+import type { CreateProductInput, ProductRow, UpdateProductInput } from "./types.js";
 import { MAX_PRODUCTS_PER_STORE as MAX_PRODUCTS } from "./types.js";
 
 type VisibilityDb = SupabaseClient<any, "public", "rint">;

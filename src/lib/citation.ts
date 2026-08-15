@@ -4,10 +4,7 @@ import type {
   HighlightSpan,
   WhyCode,
 } from "./result-metadata.js";
-import {
-  citationLayerFromSignals,
-  whyCodeFromCitation,
-} from "./result-metadata.js";
+import { citationLayerFromSignals, whyCodeFromCitation } from "./result-metadata.js";
 
 export type CitationContext = {
   storeName: string;
@@ -28,8 +25,7 @@ export type CitationResult = {
 };
 
 const URL_PATTERN = /https?:\/\/[^\s<>"')\]]+/gi;
-const BRAND_CANDIDATE =
-  /\b([A-ZÀ-Ú][a-zà-ú]+(?:\s+[A-ZÀ-Ú][a-zà-ú]+){0,2})\b/g;
+const BRAND_CANDIDATE = /\b([A-ZÀ-Ú][a-zà-ú]+(?:\s+[A-ZÀ-Ú][a-zà-ú]+){0,2})\b/g;
 
 function normalizeDomain(domain: string): string {
   return domain
@@ -55,7 +51,11 @@ function brandMentioned(text: string, brand: string): boolean {
   return text.toLowerCase().includes(trimmed.toLowerCase());
 }
 
-function isStoreHost(host: string, normalizedDomain: string | null, productUrls: string[]): boolean {
+function isStoreHost(
+  host: string,
+  normalizedDomain: string | null,
+  productUrls: string[],
+): boolean {
   if (!normalizedDomain) return false;
   if (host === normalizedDomain || host.endsWith(`.${normalizedDomain}`)) return true;
   return productUrls.some((url) => {
@@ -251,7 +251,7 @@ function buildExcerptWithSpans(
   const anchorIndex = anchor?.index ?? firstSubstantiveParagraphStart(text);
   const anchorLength = anchor?.length ?? 0;
 
-  let start = snapToSentenceStart(text, Math.max(0, anchorIndex - radius));
+  const start = snapToSentenceStart(text, Math.max(0, anchorIndex - radius));
   let end = snapToSentenceEnd(text, Math.min(text.length, anchorIndex + anchorLength + radius));
 
   if (end - start < 90 && end < text.length) {
@@ -323,7 +323,10 @@ export function detectCitation(response: string, ctx: CitationContext): Citation
       const host = normalizeDomain(parsed.hostname);
       const full = parsed.href.toLowerCase();
 
-      if (normalizedDomain && (host === normalizedDomain || host.endsWith(`.${normalizedDomain}`))) {
+      if (
+        normalizedDomain &&
+        (host === normalizedDomain || host.endsWith(`.${normalizedDomain}`))
+      ) {
         signals.push("domain_match");
         matchedUrl = rawUrl;
         break;
@@ -371,7 +374,14 @@ export function detectCitation(response: string, ctx: CitationContext): Citation
   const cited = signals.length > 0;
   const citationLayer = cited ? citationLayerFromSignals(signals) : "none";
   const competitors = cited ? [] : extractCompetitors(text, ctx, normalizedDomain);
-  const whyCode = whyCodeFromCitation(cited, citationLayer, competitors, promptText, ctx.storeName, text);
+  const whyCode = whyCodeFromCitation(
+    cited,
+    citationLayer,
+    competitors,
+    promptText,
+    ctx.storeName,
+    text,
+  );
 
   const needles = findNeedles(text, ctx, normalizedDomain, matchedUrl, cited);
   const { excerpt, highlightSpans } = buildExcerptWithSpans(text, needles);

@@ -64,8 +64,12 @@ export class ResultsRepository {
 
     if (promptsError) throw mapPostgrestError(promptsError, "Failed to load prompts");
 
-    const promptMap = new Map((prompts ?? []).map((p) => [p.id as string, p.prompt_text as string]));
-    const runCompleted = new Map((runs ?? []).map((r) => [r.id as string, r.completed_at as string | null]));
+    const promptMap = new Map(
+      (prompts ?? []).map((p) => [p.id as string, p.prompt_text as string]),
+    );
+    const runCompleted = new Map(
+      (runs ?? []).map((r) => [r.id as string, r.completed_at as string | null]),
+    );
 
     return (results ?? []).map((row) => ({
       ...(row as ResultRow),
@@ -101,7 +105,9 @@ export class ResultsRepository {
 
     if (promptsError) throw mapPostgrestError(promptsError, "Failed to load prompts");
 
-    const promptMap = new Map((prompts ?? []).map((p) => [p.id as string, p.prompt_text as string]));
+    const promptMap = new Map(
+      (prompts ?? []).map((p) => [p.id as string, p.prompt_text as string]),
+    );
     const completedAt = run.data.completed_at as string | null;
 
     return (results ?? []).map((row) => ({
@@ -111,7 +117,9 @@ export class ResultsRepository {
     }));
   }
 
-  async countByProbeRunIds(probeRunIds: string[]): Promise<Map<string, { cited: number; total: number }>> {
+  async countByProbeRunIds(
+    probeRunIds: string[],
+  ): Promise<Map<string, { cited: number; total: number }>> {
     const counts = new Map<string, { cited: number; total: number }>();
     if (probeRunIds.length === 0) return counts;
 

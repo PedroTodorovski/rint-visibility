@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { buildDatabaseUrl, isDirectSupabaseDatabaseHost, resolveSupabaseDbUrl, selectPoolerConfig } from "../../scripts/db/resolve-supabase-db-url.mjs";
+import {
+  buildDatabaseUrl,
+  isDirectSupabaseDatabaseHost,
+  resolveSupabaseDbUrl,
+  selectPoolerConfig,
+} from "../../scripts/db/resolve-supabase-db-url.mjs";
 
 const env = (values: Record<string, string>) => values as NodeJS.ProcessEnv;
 
@@ -52,7 +57,8 @@ describe("resolve-supabase-db-url", () => {
         SUPABASE_ACCESS_TOKEN: "token",
         SUPABASE_PROJECT_REF: "project-ref",
         SUPABASE_DB_PASSWORD: "abc@123",
-        SUPABASE_DB_URL: "postgresql://postgres.project-ref:[YOUR-PASSWORD]@aws-1-sa-east-1.pooler.supabase.com:5432/postgres",
+        SUPABASE_DB_URL:
+          "postgresql://postgres.project-ref:[YOUR-PASSWORD]@aws-1-sa-east-1.pooler.supabase.com:5432/postgres",
       }),
       fetchImpl: async () => {
         throw new Error("fetch should not be called when SUPABASE_DB_URL is provided");
@@ -95,7 +101,8 @@ describe("resolve-supabase-db-url", () => {
         SUPABASE_ACCESS_TOKEN: "token",
         SUPABASE_PROJECT_REF: "project-ref",
         SUPABASE_DB_PASSWORD: "abc@123",
-        SUPABASE_DB_URL: "postgresql://postgres:placeholder@db.project-ref.supabase.co:5432/postgres",
+        SUPABASE_DB_URL:
+          "postgresql://postgres:placeholder@db.project-ref.supabase.co:5432/postgres",
       }),
       fetchImpl: async () =>
         Response.json([
@@ -124,7 +131,8 @@ describe("resolve-supabase-db-url", () => {
         SUPABASE_ACCESS_TOKEN: "token",
         SUPABASE_PROJECT_REF: "project-ref",
         SUPABASE_DB_PASSWORD: "abc@123",
-        SUPABASE_DB_URL: "postgresql://postgres:placeholder@db.project-ref.supabase.co:5432/postgres",
+        SUPABASE_DB_URL:
+          "postgresql://postgres:placeholder@db.project-ref.supabase.co:5432/postgres",
       }),
       fetchImpl: async () =>
         Response.json([

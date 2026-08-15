@@ -18,9 +18,13 @@ try {
   diffRange = `${baseRef}..HEAD`;
 }
 
-const diff = execFileSync("git", ["diff", "--name-status", diffRange, "--", "supabase/migrations"], {
-  encoding: "utf8",
-});
+const diff = execFileSync(
+  "git",
+  ["diff", "--name-status", diffRange, "--", "supabase/migrations"],
+  {
+    encoding: "utf8",
+  },
+);
 
 const lines = diff
   .split("\n")
@@ -38,7 +42,9 @@ const blocked = lines.filter((line) => {
 });
 
 if (blocked.length > 0) {
-  console.error("db:history guard failed. Historical migration SQL files cannot be modified/deleted in PRs:");
+  console.error(
+    "db:history guard failed. Historical migration SQL files cannot be modified/deleted in PRs:",
+  );
   for (const line of blocked) {
     console.error(` - ${line}`);
   }

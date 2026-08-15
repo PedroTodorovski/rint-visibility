@@ -2,8 +2,8 @@ import type { AppConfig } from "../config.js";
 import { createSupabaseClient } from "../db/client.js";
 import {
   DiagnosticQueriesRepository,
-  DiagnosticsRepository,
   DiagnosticSkusRepository,
+  DiagnosticsRepository,
   FinancialRiskRepository,
   JobsRepository,
   TriageResultsRepository,
@@ -15,17 +15,16 @@ import { PerRunReadCacheRepository } from "./per-run-read-cache.js";
 import { ProbeRunsRepository } from "./probe-runs.js";
 import { ProductsRepository } from "./products.js";
 import { PromptsRepository } from "./prompts.js";
+import type { CreateResultInput } from "./results.js";
 import { ResultsRepository } from "./results.js";
 import { StoresRepository } from "./stores.js";
-import { WeeklyScoresRepository } from "./weekly-scores.js";
 
 import type {
-  CatalogFix,
   CreateProductInput,
   CreatePromptInput,
-  ProductRow,
   ProbeRunRow,
   ProbeRunStatus,
+  ProductRow,
   PromptRow,
   ResultRow,
   ResultWithPrompt,
@@ -35,8 +34,8 @@ import type {
   UpsertStoreInput,
   WeeklyScoreRow,
 } from "./types.js";
-import type { CreateResultInput } from "./results.js";
 import type { UpsertWeeklyScoreInput } from "./weekly-scores.js";
+import { WeeklyScoresRepository } from "./weekly-scores.js";
 
 export type StoresRepositoryLike = {
   findByWorkspaceId(workspaceId: string): Promise<StoreRow | null>;
@@ -89,17 +88,26 @@ export type WeeklyScoresRepositoryLike = {
   findLatestByStoreId(storeId: string): Promise<WeeklyScoreRow | null>;
 };
 
-export type PerRunReadCacheRepositoryLike = import("./per-run-read-cache.js").PerRunReadCacheRepositoryLike;
-export type LacunaSnapshotsRepositoryLike = import("./lacuna-snapshots.js").LacunaSnapshotsRepositoryLike;
-export type DualTrackOutputsRepositoryLike = import("./dual-track-outputs.js").DualTrackOutputsRepositoryLike;
+export type PerRunReadCacheRepositoryLike =
+  import("./per-run-read-cache.js").PerRunReadCacheRepositoryLike;
+export type LacunaSnapshotsRepositoryLike =
+  import("./lacuna-snapshots.js").LacunaSnapshotsRepositoryLike;
+export type DualTrackOutputsRepositoryLike =
+  import("./dual-track-outputs.js").DualTrackOutputsRepositoryLike;
 export type JobsRepositoryLike = Pick<
   JobsRepository,
   "create" | "updateStatus" | "findByIdForStore" | "findById" | "findLatestByStoreId"
 >;
 export type DiagnosticSkusRepositoryLike = Pick<DiagnosticSkusRepository, "create" | "listByJobId">;
-export type DiagnosticQueriesRepositoryLike = Pick<DiagnosticQueriesRepository, "create" | "listByJobId">;
+export type DiagnosticQueriesRepositoryLike = Pick<
+  DiagnosticQueriesRepository,
+  "create" | "listByJobId"
+>;
 export type TriageResultsRepositoryLike = Pick<TriageResultsRepository, "create" | "findByJobId">;
-export type FinancialRiskRepositoryLike = Pick<FinancialRiskRepository, "createMany" | "listByJobId">;
+export type FinancialRiskRepositoryLike = Pick<
+  FinancialRiskRepository,
+  "createMany" | "listByJobId"
+>;
 export type DiagnosticsRepositoryLike = Pick<DiagnosticsRepository, "create" | "findByJobId">;
 export type UsageEventsRepositoryLike = Pick<UsageEventsRepository, "create">;
 
@@ -144,22 +152,22 @@ export function createRepositories(config: AppConfig): VisibilityRepositories {
   };
 }
 
+export type * from "./diagnostic-tables.js";
+export { ProbeRunsRepository } from "./probe-runs.js";
 export { ProductsRepository } from "./products.js";
 export { PromptsRepository } from "./prompts.js";
-export { ProbeRunsRepository } from "./probe-runs.js";
+export type { CreateResultInput } from "./results.js";
 export { ResultsRepository } from "./results.js";
 export { StoresRepository } from "./stores.js";
+export * from "./types.js";
+export type { UpsertWeeklyScoreInput } from "./weekly-scores.js";
 export { WeeklyScoresRepository } from "./weekly-scores.js";
 export {
   DiagnosticQueriesRepository,
-  DiagnosticsRepository,
   DiagnosticSkusRepository,
+  DiagnosticsRepository,
   FinancialRiskRepository,
   JobsRepository,
   TriageResultsRepository,
   UsageEventsRepository,
 };
-export type { UpsertWeeklyScoreInput } from "./weekly-scores.js";
-export type { CreateResultInput } from "./results.js";
-export type * from "./diagnostic-tables.js";
-export * from "./types.js";

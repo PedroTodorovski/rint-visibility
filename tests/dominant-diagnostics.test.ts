@@ -3,8 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../src/app.js";
 import { loadConfig } from "../src/config.js";
 import { authHeaders } from "../src/lib/request.js";
-import { selectDominantSku } from "../src/services/dominant-diagnostic-runner.js";
 import { computeTriage } from "../src/services/diagnostic-triage.js";
+import { selectDominantSku } from "../src/services/dominant-diagnostic-runner.js";
 import { createMemoryRepositories } from "./helpers/memory-repositories.js";
 
 const TEST_API_KEY = "test-visibility-api-key";
@@ -77,7 +77,10 @@ afterEach(() => {
 
 describe("dominant diagnostics API", () => {
   it("enqueues, completes, and returns dominant diagnostic payload", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 200 })));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("", { status: 200 })),
+    );
 
     const app = await buildApp(testConfig(), { repositories: createMemoryRepositories() });
     await seedStore(app);
@@ -109,16 +112,19 @@ describe("dominant diagnostics API", () => {
     expect(diagnostic.json().triage_result.track_assigned).toBe(diagnostic.json().diagnostic.track);
     expect(diagnostic.json().queries[0].num_execucoes).toBe(3);
     expect(diagnostic.json().queries[0].confianca).toContain("3 de 3");
-    expect(diagnostic.json().financial_risk.map((row: { formula_type: string }) => row.formula_type)).toContain(
-      "lacuna_ai_floor",
-    );
-    expect(diagnostic.json().financial_risk.map((row: { formula_type: string }) => row.formula_type)).toContain(
-      "compensation_cost_media",
-    );
+    expect(
+      diagnostic.json().financial_risk.map((row: { formula_type: string }) => row.formula_type),
+    ).toContain("lacuna_ai_floor");
+    expect(
+      diagnostic.json().financial_risk.map((row: { formula_type: string }) => row.formula_type),
+    ).toContain("compensation_cost_media");
   });
 
   it("hard-stops job when Shopify is not connected", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 200 })));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("", { status: 200 })),
+    );
 
     const app = await buildApp(testConfig(), { repositories: createMemoryRepositories() });
     await seedStore(app);

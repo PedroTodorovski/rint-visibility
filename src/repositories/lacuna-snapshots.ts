@@ -1,7 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-
-import { mapPostgrestError } from "./postgrest.js";
 import type { RevenueGapAssumptions, RevenueGapFlags } from "../services/revenue-gap-engine.js";
+import { mapPostgrestError } from "./postgrest.js";
 
 type VisibilityDb = SupabaseClient<any, "public", "rint">;
 

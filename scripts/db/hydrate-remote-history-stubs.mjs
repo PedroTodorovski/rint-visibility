@@ -5,7 +5,10 @@ import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 const MIGRATION_FILE_PATTERN = /^(\d{14})_[a-z0-9_]+\.sql$/;
-const MIGRATION_LIST_MAX_ATTEMPTS = readPositiveIntegerEnv("SUPABASE_MIGRATION_LIST_MAX_ATTEMPTS", 5);
+const MIGRATION_LIST_MAX_ATTEMPTS = readPositiveIntegerEnv(
+  "SUPABASE_MIGRATION_LIST_MAX_ATTEMPTS",
+  5,
+);
 const MIGRATION_LIST_RETRY_BASE_DELAY_MS = readPositiveIntegerEnv(
   "SUPABASE_MIGRATION_LIST_RETRY_BASE_DELAY_MS",
   5000,
@@ -32,7 +35,9 @@ const localVersions = new Set(
 );
 
 const migrationListOutput = runSupabaseMigrationList(databaseUrl);
-const remoteVersions = new Set([...migrationListOutput.matchAll(/\b\d{14}\b/g)].map((match) => match[0]));
+const remoteVersions = new Set(
+  [...migrationListOutput.matchAll(/\b\d{14}\b/g)].map((match) => match[0]),
+);
 const missingRemoteVersions = [...remoteVersions]
   .filter((version) => !localVersions.has(version))
   .sort();
@@ -82,7 +87,8 @@ function runSupabaseMigrationList(dbUrl) {
         timeout: 120_000,
       });
     } catch (error) {
-      const shouldRetry = attempt < MIGRATION_LIST_MAX_ATTEMPTS && isTransientSupabaseConnectionError(error);
+      const shouldRetry =
+        attempt < MIGRATION_LIST_MAX_ATTEMPTS && isTransientSupabaseConnectionError(error);
 
       if (!shouldRetry) {
         writeCommandOutput(error);

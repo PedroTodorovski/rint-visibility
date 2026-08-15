@@ -1,3 +1,10 @@
+import type { ShopifyProductSnapshot } from "../services/diagnostic-types.js";
+import { createGa4AiReferralPort as createRealGa4AiReferralPort } from "./ga4-revenue-adapter.js";
+import { createMetaCacPort as createRealMetaCacPort } from "./meta-cac-adapter.js";
+import {
+  createShopifyProductSnapshotPort as createRealShopifyProductSnapshotPort,
+  createShopifyRevenuePort as createRealShopifyRevenuePort,
+} from "./shopify-revenue-adapter.js";
 import type {
   AnalysisWindow,
   Ga4AiReferralPort,
@@ -14,13 +21,6 @@ import type {
   ShopifyRevenuePort,
   ShopifySkuRevenue,
 } from "./types.js";
-import type { ShopifyProductSnapshot } from "../services/diagnostic-types.js";
-import { createGa4AiReferralPort as createRealGa4AiReferralPort } from "./ga4-revenue-adapter.js";
-import { createMetaCacPort as createRealMetaCacPort } from "./meta-cac-adapter.js";
-import {
-  createShopifyProductSnapshotPort as createRealShopifyProductSnapshotPort,
-  createShopifyRevenuePort as createRealShopifyRevenuePort,
-} from "./shopify-revenue-adapter.js";
 
 function defaultWindow(): AnalysisWindow {
   const end = new Date();
@@ -65,9 +65,7 @@ function productNameFromUrl(url: string): string {
   try {
     const path = new URL(url).pathname;
     const slug = path.split("/").filter(Boolean).pop() ?? "hero-product";
-    return slug
-      .replace(/[-_]+/g, " ")
-      .replace(/\b\w/g, (c) => c.toUpperCase());
+    return slug.replace(/[-_]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
   } catch {
     return "Hero Product";
   }
@@ -153,7 +151,10 @@ export function createGa4AiReferralPort(
       };
     },
 
-    async getSkuConversionMetrics(ref: string, _window: AnalysisWindow): Promise<ProductConversionMetrics> {
+    async getSkuConversionMetrics(
+      ref: string,
+      _window: AnalysisWindow,
+    ): Promise<ProductConversionMetrics> {
       return {
         externalRef: ref,
         conversionRate: 0.018,
@@ -206,7 +207,10 @@ export function createGoogleTrendsPort(config: IntegrationRegistryConfig): Googl
         term,
         interest: null,
         seasonalIndex: null,
-        meta: metaFor("google_trends", config.googleTrends?.apiKey ? "configured" : "stub_unavailable"),
+        meta: metaFor(
+          "google_trends",
+          config.googleTrends?.apiKey ? "configured" : "stub_unavailable",
+        ),
       };
     },
   };
