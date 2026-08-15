@@ -17,6 +17,7 @@ Engine API for Rint MVP 2026 — Gemini probes, revenue gap (future), Supabase `
 | Variable origins | `../rint-app/docs/integrations/VARIABLE-ORIGIN-CONTRACT.md` |
 | DB governance | `docs/database/GOVERNANCE.md` |
 | Harness | `../rint-app/docs/harness/REVIEW-RINT-VISIBILITY.md` |
+| Naming | `../rint-app/docs/harness/RINT-NAMING.md` — Hub is visual example; no Nowle identifiers in source |
 | Stack | `../rint-app/docs/harness/STACK.md` |
 
 ## Harness commands
