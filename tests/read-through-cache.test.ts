@@ -36,9 +36,16 @@ describe("readThroughCache", () => {
       ok: true,
     }));
     expect(cache.writes).toEqual([probeRunId]);
-    const second = await readThroughCache(cache, probeRunId, "shopify", "revenue", 60_000, async () => {
-      throw new Error("fetcher should not run on hit");
-    });
+    const second = await readThroughCache(
+      cache,
+      probeRunId,
+      "shopify",
+      "revenue",
+      60_000,
+      async () => {
+        throw new Error("fetcher should not run on hit");
+      },
+    );
     expect(second.cacheHit).toBe(true);
     expect(second.data).toEqual({ ok: true });
   });
@@ -55,9 +62,16 @@ describe("readThroughCache", () => {
       },
     };
 
-    const result = await readThroughCache(cache, "job-not-a-probe-run", "ga4", "k", 60_000, async () => ({
-      totalRevenue: 10,
-    }));
+    const result = await readThroughCache(
+      cache,
+      "job-not-a-probe-run",
+      "ga4",
+      "k",
+      60_000,
+      async () => ({
+        totalRevenue: 10,
+      }),
+    );
     expect(result.cacheHit).toBe(false);
     expect(result.data).toEqual({ totalRevenue: 10 });
   });

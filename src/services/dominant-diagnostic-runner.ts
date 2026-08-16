@@ -46,10 +46,6 @@ function requireShopifyConnection(integrationConfig: IntegrationRegistryConfig |
   }
 }
 
-function primaryRef(product: ProductRow): string {
-  return product.external_ref ?? product.id;
-}
-
 function planSnapshot(
   config: DiagnosticRunConfig,
   integrationConfig: IntegrationRegistryConfig | undefined,
@@ -336,7 +332,9 @@ export async function runDominantDiagnostic(
     const ref = primary.product.external_ref ?? primary.product.id;
     const [ga4Read, shopifyRead, metaRead, googleAdsRead, merchantRead, trendsRead] =
       await Promise.all([
-        cachePort("ga4", `ai-referral:${cacheKeyBase}`, () => ports.ga4.getAiReferralRevenue(window)),
+        cachePort("ga4", `ai-referral:${cacheKeyBase}`, () =>
+          ports.ga4.getAiReferralRevenue(window),
+        ),
         cachePort("shopify", `revenue:${ref}:${cacheKeyBase}`, () =>
           ports.shopify.getSkuRevenue(ref, window),
         ),

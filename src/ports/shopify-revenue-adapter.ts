@@ -141,7 +141,6 @@ export function createShopifyRevenuePort(
       const queryFilter = `created_at:>=${window.start} created_at:<=${window.end} financial_status:paid`;
       let after: string | null = null;
       let revenue = 0;
-      let lineQty = 0;
       const orderIds = new Set<string>();
 
       for (let page = 0; page < 20; page++) {
@@ -196,8 +195,6 @@ export function createShopifyRevenuePort(
             const line = lineEdge.node;
             if (!line || line.product?.id !== productGid) continue;
             if (orderId) orderIds.add(orderId);
-            const qty = Number(line.quantity ?? 0) || 0;
-            lineQty += qty;
             revenue += lineItemRevenue(line);
           }
         }
