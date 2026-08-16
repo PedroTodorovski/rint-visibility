@@ -72,7 +72,8 @@ export type UpdatePromptInput = {
 };
 
 export const MAX_PRODUCTS_PER_STORE = 5;
-export const MAX_PROMPTS_PER_STORE = 10;
+/** 3 SKUs × 5 questions — matches the founder wizard cap. */
+export const MAX_PROMPTS_PER_STORE = 15;
 export const MAX_PROMPTS_PER_PRODUCT = 5;
 
 export type ProbeRunStatus = "pending" | "running" | "completed" | "failed";

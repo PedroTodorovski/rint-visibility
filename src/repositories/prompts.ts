@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { limitExceeded, notFound } from "../lib/errors.js";
-import { mapPostgrestError } from "./postgrest.js";
+import { isForeignKeyViolation, mapPostgrestError } from "./postgrest.js";
 import type { CreatePromptInput, PromptRow, UpdatePromptInput } from "./types.js";
 import { MAX_PROMPTS_PER_PRODUCT, MAX_PROMPTS_PER_STORE } from "./types.js";
 
@@ -25,13 +25,21 @@ export class PromptsRepository {
     return (data ?? []) as PromptRow[];
   }
 
-  async countActiveByProductId(storeId: string, productId: string): Promise<number> {
-    const { count, error } = await this.db
+  async countActiveByProductId(
+    storeId: string,
+    productId: string,
+    excludePromptId?: string,
+  ): Promise<number> {
+    let query = this.db
       .from("prompts")
       .select("id", { count: "exact", head: true })
       .eq("store_id", storeId)
       .eq("product_id", productId)
       .eq("active", true);
+    if (excludePromptId) {
+      query = query.neq("id", excludePromptId);
+    }
+    const { count, error } = await query;
 
     if (error) {
       throw mapPostgrestError(error, "Failed to count prompts for product");
@@ -42,7 +50,8 @@ export class PromptsRepository {
 
   async create(storeId: string, input: CreatePromptInput): Promise<PromptRow> {
     const existing = await this.listByStoreId(storeId);
-    if (existing.length >= MAX_PROMPTS_PER_STORE) {
+    const activeCount = existing.filter((prompt) => prompt.active).length;
+    if (activeCount >= MAX_PROMPTS_PER_STORE) {
       throw limitExceeded(`Store already has the maximum of ${MAX_PROMPTS_PER_STORE} prompts`);
     }
 
@@ -78,10 +87,27 @@ export class PromptsRepository {
   }
 
   async update(storeId: string, promptId: string, input: UpdatePromptInput): Promise<PromptRow> {
-    if (input.product_id !== undefined && input.product_id !== null) {
-      const activeForProduct = await this.countActiveByProductId(storeId, input.product_id);
-      const willBeActive = input.active ?? true;
-      if (willBeActive && activeForProduct >= MAX_PROMPTS_PER_PRODUCT) {
+    const { data: current, error: currentError } = await this.db
+      .from("prompts")
+      .select("*")
+      .eq("id", promptId)
+      .eq("store_id", storeId)
+      .maybeSingle();
+
+    if (currentError) {
+      throw mapPostgrestError(currentError, "Failed to load prompt");
+    }
+    if (!current) {
+      throw notFound(`Prompt ${promptId} not found`);
+    }
+
+    const currentRow = current as PromptRow;
+    const targetProductId =
+      input.product_id !== undefined ? input.product_id : currentRow.product_id;
+    const willBeActive = input.active !== undefined ? input.active : currentRow.active;
+    if (willBeActive && targetProductId) {
+      const others = await this.countActiveByProductId(storeId, targetProductId, promptId);
+      if (others >= MAX_PROMPTS_PER_PRODUCT) {
         throw limitExceeded(
           `Product already has the maximum of ${MAX_PROMPTS_PER_PRODUCT} active prompts`,
         );
@@ -126,6 +152,10 @@ export class PromptsRepository {
       .maybeSingle();
 
     if (error) {
+      if (isForeignKeyViolation(error)) {
+        await this.update(storeId, promptId, { active: false });
+        return;
+      }
       throw mapPostgrestError(error, "Failed to delete prompt");
     }
 

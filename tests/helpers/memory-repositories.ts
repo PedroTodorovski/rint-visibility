@@ -33,7 +33,11 @@ import type {
   UpsertStoreInput,
   WeeklyScoreRow,
 } from "../../src/repositories/types.js";
-import { MAX_PRODUCTS_PER_STORE, MAX_PROMPTS_PER_STORE } from "../../src/repositories/types.js";
+import {
+  MAX_PRODUCTS_PER_STORE,
+  MAX_PROMPTS_PER_PRODUCT,
+  MAX_PROMPTS_PER_STORE,
+} from "../../src/repositories/types.js";
 import type { UpsertWeeklyScoreInput } from "../../src/repositories/weekly-scores.js";
 import type { DiagnosticJobStatus } from "../../src/services/diagnostic-types.js";
 
@@ -155,7 +159,8 @@ export function createMemoryRepositories(): VisibilityRepositories {
       },
       async create(storeId: string, input: CreatePromptInput) {
         const existing = promptsByStore.get(storeId) ?? [];
-        if (existing.length >= MAX_PROMPTS_PER_STORE) {
+        const activeCount = existing.filter((prompt) => prompt.active).length;
+        if (activeCount >= MAX_PROMPTS_PER_STORE) {
           throw limitExceeded(`Store already has the maximum of ${MAX_PROMPTS_PER_STORE} prompts`);
         }
         const now = new Date().toISOString();
@@ -178,8 +183,26 @@ export function createMemoryRepositories(): VisibilityRepositories {
         if (index === -1) {
           throw notFound(`Prompt ${promptId} not found`);
         }
+        const current = items[index];
+        if (!current) {
+          throw notFound(`Prompt ${promptId} not found`);
+        }
+        const targetProductId =
+          input.product_id !== undefined ? input.product_id : current.product_id;
+        const willBeActive = input.active !== undefined ? input.active : current.active;
+        if (willBeActive && targetProductId) {
+          const others = items.filter(
+            (prompt) =>
+              prompt.active && prompt.product_id === targetProductId && prompt.id !== promptId,
+          ).length;
+          if (others >= MAX_PROMPTS_PER_PRODUCT) {
+            throw limitExceeded(
+              `Product already has the maximum of ${MAX_PROMPTS_PER_PRODUCT} active prompts`,
+            );
+          }
+        }
         const updated: PromptRow = {
-          ...items[index]!,
+          ...current,
           ...input,
           updated_at: new Date().toISOString(),
         };
@@ -369,6 +392,14 @@ export function createMemoryRepositories(): VisibilityRepositories {
         payload: unknown,
         expiresAt: string,
       ) {
+        const known = [...probeRunsByStore.values()].some((runs) =>
+          runs.some((run) => run.id === probeRunId),
+        );
+        if (!known) {
+          throw new Error(
+            'insert or update on table "per_run_read_cache" violates foreign key constraint "per_run_read_cache_probe_run_id_fkey"',
+          );
+        }
         const key = `${probeRunId}:${portName}:${cacheKey}`;
         portCacheStore.set(key, { payload, expires_at: expiresAt });
       },

@@ -179,6 +179,104 @@ describe("CRUD /v1 stores, products, prompts", () => {
     expect(deleteProduct.statusCode).toBe(204);
   });
 
+  it("caps active prompts at 15 and lets deactivated leftovers be replaced", async () => {
+    const app = await buildApp(testConfig(), { repositories: createMemoryRepositories() });
+
+    await app.inject({
+      method: "PUT",
+      url: `/v1/stores?workspace_id=${WORKSPACE_ID}`,
+      headers: authHeaders(TEST_API_KEY),
+      payload: { name: "Acme Shop" },
+    });
+
+    const promptIds: string[] = [];
+    for (let i = 0; i < 15; i++) {
+      const created = await app.inject({
+        method: "POST",
+        url: `/v1/prompts?workspace_id=${WORKSPACE_ID}`,
+        headers: authHeaders(TEST_API_KEY),
+        payload: { prompt_text: `prompt ${i + 1}`, sort_order: i + 1 },
+      });
+      expect(created.statusCode).toBe(201);
+      promptIds.push(created.json().prompt.id);
+    }
+
+    const overflow = await app.inject({
+      method: "POST",
+      url: `/v1/prompts?workspace_id=${WORKSPACE_ID}`,
+      headers: authHeaders(TEST_API_KEY),
+      payload: { prompt_text: "prompt 16", sort_order: 16 },
+    });
+    expect(overflow.statusCode).toBe(409);
+    expect(overflow.json().code).toBe("LIMIT_EXCEEDED");
+
+    const deactivate = await app.inject({
+      method: "PATCH",
+      url: `/v1/prompts/${promptIds[0]}?workspace_id=${WORKSPACE_ID}`,
+      headers: authHeaders(TEST_API_KEY),
+      payload: { active: false },
+    });
+    expect(deactivate.statusCode).toBe(200);
+
+    const replacement = await app.inject({
+      method: "POST",
+      url: `/v1/prompts?workspace_id=${WORKSPACE_ID}`,
+      headers: authHeaders(TEST_API_KEY),
+      payload: { prompt_text: "prompt replacement", sort_order: 16 },
+    });
+    expect(replacement.statusCode).toBe(201);
+  });
+
+  it("updates an existing prompt on a full product without LIMIT_EXCEEDED", async () => {
+    const app = await buildApp(testConfig(), { repositories: createMemoryRepositories() });
+
+    await app.inject({
+      method: "PUT",
+      url: `/v1/stores?workspace_id=${WORKSPACE_ID}`,
+      headers: authHeaders(TEST_API_KEY),
+      payload: { name: "Acme Shop" },
+    });
+
+    const product = await app.inject({
+      method: "POST",
+      url: `/v1/products?workspace_id=${WORKSPACE_ID}`,
+      headers: authHeaders(TEST_API_KEY),
+      payload: { url: "https://shop.example/products/hero", position: 1 },
+    });
+    expect(product.statusCode).toBe(201);
+    const productId = product.json().product.id as string;
+
+    const promptIds: string[] = [];
+    for (let i = 0; i < 5; i++) {
+      const created = await app.inject({
+        method: "POST",
+        url: `/v1/prompts?workspace_id=${WORKSPACE_ID}`,
+        headers: authHeaders(TEST_API_KEY),
+        payload: {
+          prompt_text: `prompt ${i + 1}`,
+          product_id: productId,
+          sort_order: i + 1,
+        },
+      });
+      expect(created.statusCode).toBe(201);
+      promptIds.push(created.json().prompt.id);
+    }
+
+    const patched = await app.inject({
+      method: "PATCH",
+      url: `/v1/prompts/${promptIds[0]}?workspace_id=${WORKSPACE_ID}`,
+      headers: authHeaders(TEST_API_KEY),
+      payload: {
+        prompt_text: "melhor snowboard brasil",
+        product_id: productId,
+        sort_order: 1,
+        active: true,
+      },
+    });
+    expect(patched.statusCode).toBe(200);
+    expect(patched.json().prompt.prompt_text).toBe("melhor snowboard brasil");
+  });
+
   it("returns 404 when store does not exist for nested resources", async () => {
     const app = await buildApp(testConfig(), { repositories: createMemoryRepositories() });
 
