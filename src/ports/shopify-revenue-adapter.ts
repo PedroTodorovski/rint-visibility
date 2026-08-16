@@ -141,7 +141,6 @@ export function createShopifyRevenuePort(
       const queryFilter = `created_at:>=${window.start} created_at:<=${window.end} financial_status:paid`;
       let after: string | null = null;
       let revenue = 0;
-      let lineQty = 0;
       const orderIds = new Set<string>();
 
       for (let page = 0; page < 20; page++) {
@@ -196,8 +195,6 @@ export function createShopifyRevenuePort(
             const line = lineEdge.node;
             if (!line || line.product?.id !== productGid) continue;
             if (orderId) orderIds.add(orderId);
-            const qty = Number(line.quantity ?? 0) || 0;
-            lineQty += qty;
             revenue += lineItemRevenue(line);
           }
         }
@@ -218,6 +215,47 @@ export function createShopifyRevenuePort(
       };
     },
   };
+}
+
+const PRODUCT_SNAPSHOT_FIELDS = `
+                id
+                title
+                handle
+                vendor
+                onlineStoreUrl
+                totalInventory
+                featuredImage { altText }
+                priceRangeV2 { minVariantPrice { amount currencyCode } }
+                options { name values }
+                metafields(first: 20, namespace: "custom") {
+                  edges { node { namespace key value } }
+                }
+                variants(first: 20) {
+                  edges {
+                    node {
+                      id
+                      title
+                      inventoryQuantity
+                      price
+                      selectedOptions { name value }
+                    }
+                  }
+                }
+`;
+
+function productSnapshotGraphql(by: "id" | "handle"): string {
+  if (by === "id") {
+    return `#graphql
+            query RintProductSnapshotById($id: ID!) {
+              product(id: $id) {${PRODUCT_SNAPSHOT_FIELDS}              }
+            }
+          `;
+  }
+  return `#graphql
+            query RintProductSnapshotByHandle($handle: String!) {
+              productByHandle(handle: $handle) {${PRODUCT_SNAPSHOT_FIELDS}              }
+            }
+          `;
 }
 
 function productAttributes(product: ShopifyProductNode): {
@@ -282,7 +320,18 @@ export function createShopifyProductSnapshotPort(
       const productGid = input.ref ? normalizeShopifyProductRef(input.ref) : null;
       const handle = extractShopifyProductHandle(input.url);
 
-      if (!productGid && !handle) return null;
+      let query: string;
+      let variables: { id: string } | { handle: string };
+
+      if (productGid) {
+        query = productSnapshotGraphql("id");
+        variables = { id: productGid };
+      } else if (handle) {
+        query = productSnapshotGraphql("handle");
+        variables = { handle };
+      } else {
+        return null;
+      }
 
       const response = await fetchImpl(
         `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`,
@@ -293,63 +342,7 @@ export function createShopifyProductSnapshotPort(
             "Content-Type": "application/json",
             "X-Shopify-Access-Token": credentials.accessToken,
           },
-          body: JSON.stringify({
-            query: `#graphql
-            query RintProductSnapshot($id: ID, $handle: String) {
-              product(id: $id) {
-                id
-                title
-                handle
-                vendor
-                onlineStoreUrl
-                totalInventory
-                featuredImage { altText }
-                priceRangeV2 { minVariantPrice { amount currencyCode } }
-                options { name values }
-                metafields(first: 20, namespace: "custom") {
-                  edges { node { namespace key value } }
-                }
-                variants(first: 20) {
-                  edges {
-                    node {
-                      id
-                      title
-                      inventoryQuantity
-                      price
-                      selectedOptions { name value }
-                    }
-                  }
-                }
-              }
-              productByHandle(handle: $handle) {
-                id
-                title
-                handle
-                vendor
-                onlineStoreUrl
-                totalInventory
-                featuredImage { altText }
-                priceRangeV2 { minVariantPrice { amount currencyCode } }
-                options { name values }
-                metafields(first: 20, namespace: "custom") {
-                  edges { node { namespace key value } }
-                }
-                variants(first: 20) {
-                  edges {
-                    node {
-                      id
-                      title
-                      inventoryQuantity
-                      price
-                      selectedOptions { name value }
-                    }
-                  }
-                }
-              }
-            }
-          `,
-            variables: { id: productGid, handle },
-          }),
+          body: JSON.stringify({ query, variables }),
         },
       );
 

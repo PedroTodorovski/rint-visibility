@@ -46,10 +46,6 @@ function requireShopifyConnection(integrationConfig: IntegrationRegistryConfig |
   }
 }
 
-function primaryRef(product: ProductRow): string {
-  return product.external_ref ?? product.id;
-}
-
 function planSnapshot(
   config: DiagnosticRunConfig,
   integrationConfig: IntegrationRegistryConfig | undefined,
@@ -317,68 +313,48 @@ export async function runDominantDiagnostic(
     }
 
     const { primary, selection: dominantSkuSelection } = selectDominantSku(skuRows, queryRows);
+    const probeRunId = job.probe_run_id;
+    if (!probeRunId) {
+      throw new AppError(500, "INTERNAL_ERROR", "Diagnostic job is missing probe_run_id");
+    }
+
+    const cachePort = <T>(portName: string, cacheKey: string, fetcher: () => Promise<T>) =>
+      readThroughCache(
+        deps.repos.perRunReadCache,
+        probeRunId,
+        portName,
+        cacheKey,
+        DEFAULT_PORT_TTL_MS,
+        fetcher,
+      );
+
     const cacheKeyBase = `${window.start}:${window.end}`;
     const ref = primary.product.external_ref ?? primary.product.id;
     const [ga4Read, shopifyRead, metaRead, googleAdsRead, merchantRead, trendsRead] =
       await Promise.all([
-        readThroughCache(
-          deps.repos.perRunReadCache,
-          payload.jobId,
-          "ga4",
-          `ai-referral:${cacheKeyBase}`,
-          DEFAULT_PORT_TTL_MS,
-          () => ports.ga4.getAiReferralRevenue(window),
+        cachePort("ga4", `ai-referral:${cacheKeyBase}`, () =>
+          ports.ga4.getAiReferralRevenue(window),
         ),
-        readThroughCache(
-          deps.repos.perRunReadCache,
-          payload.jobId,
-          "shopify",
-          `revenue:${ref}:${cacheKeyBase}`,
-          DEFAULT_PORT_TTL_MS,
-          () => ports.shopify.getSkuRevenue(ref, window),
+        cachePort("shopify", `revenue:${ref}:${cacheKeyBase}`, () =>
+          ports.shopify.getSkuRevenue(ref, window),
         ),
-        readThroughCache(
-          deps.repos.perRunReadCache,
-          payload.jobId,
-          "meta",
-          `cac:${ref}:${cacheKeyBase}`,
-          DEFAULT_PORT_TTL_MS,
-          () => ports.meta.getSkuCac(ref, window),
+        cachePort("meta", `cac:${ref}:${cacheKeyBase}`, () => ports.meta.getSkuCac(ref, window)),
+        cachePort("google_ads", `waste:${ref}:${cacheKeyBase}`, () =>
+          ports.googleAds.getSkuWaste(ref, window),
         ),
-        readThroughCache(
-          deps.repos.perRunReadCache,
-          payload.jobId,
-          "google_ads",
-          `waste:${ref}:${cacheKeyBase}`,
-          DEFAULT_PORT_TTL_MS,
-          () => ports.googleAds.getSkuWaste(ref, window),
+        cachePort("merchant_center", `status:${ref}:${cacheKeyBase}`, () =>
+          ports.merchantCenter.getProductStatus(ref, window),
         ),
-        readThroughCache(
-          deps.repos.perRunReadCache,
-          payload.jobId,
-          "merchant_center",
-          `status:${ref}:${cacheKeyBase}`,
-          DEFAULT_PORT_TTL_MS,
-          () => ports.merchantCenter.getProductStatus(ref, window),
-        ),
-        readThroughCache(
-          deps.repos.perRunReadCache,
-          payload.jobId,
+        cachePort(
           "google_trends",
           `interest:${primary.row.shopify_data.name}:${cacheKeyBase}`,
-          DEFAULT_PORT_TTL_MS,
           () => ports.googleTrends.getInterest(primary.row.shopify_data.name, window),
         ),
       ]);
 
     const conversion = ports.ga4.getSkuConversionMetrics
-      ? await readThroughCache(
-          deps.repos.perRunReadCache,
-          payload.jobId,
-          "ga4",
-          `conversion:${ref}:${cacheKeyBase}`,
-          DEFAULT_PORT_TTL_MS,
-          () => ports.ga4.getSkuConversionMetrics!(ref, window),
+      ? await cachePort("ga4", `conversion:${ref}:${cacheKeyBase}`, () =>
+          ports.ga4.getSkuConversionMetrics!(ref, window),
         )
       : null;
 

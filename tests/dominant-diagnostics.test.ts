@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { buildApp } from "../src/app.js";
@@ -76,6 +79,21 @@ afterEach(() => {
 });
 
 describe("dominant diagnostics API", () => {
+  it("caches port reads by probe_run_id, never by job id", () => {
+    const runner = readFileSync(
+      path.join(
+        path.dirname(fileURLToPath(import.meta.url)),
+        "../src/services/dominant-diagnostic-runner.ts",
+      ),
+      "utf-8",
+    );
+    expect(runner).toContain("job.probe_run_id");
+    expect(runner).toContain("cachePort");
+    expect(runner).toMatch(/readThroughCache\(\s*deps\.repos\.perRunReadCache,\s*probeRunId/);
+    expect(runner).not.toMatch(
+      /readThroughCache\(\s*deps\.repos\.perRunReadCache,\s*payload\.jobId/,
+    );
+  });
   it("enqueues, completes, and returns dominant diagnostic payload", async () => {
     vi.stubGlobal(
       "fetch",

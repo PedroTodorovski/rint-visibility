@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  createShopifyProductSnapshotPort,
   createShopifyRevenuePort,
+  extractShopifyProductHandle,
   normalizeShopifyProductRef,
 } from "../src/ports/shopify-revenue-adapter.js";
 
@@ -83,5 +85,89 @@ describe("shopify-revenue-adapter", () => {
     expect(result.orders).toBe(2);
     expect(result.ticketMedio).toBe(675);
     expect(result.meta.source).toBe("inflow.myshopify.com");
+  });
+
+  it("extracts a product handle from a PDP URL", () => {
+    expect(
+      extractShopifyProductHandle(
+        "https://rint-test-store.myshopify.com/products/the-multi-location-snowboard",
+      ),
+    ).toBe("the-multi-location-snowboard");
+  });
+
+  it("queries product by handle with String! when there is no GID", async () => {
+    let body: { query?: string; variables?: Record<string, unknown> } = {};
+    const fetchImpl = async (_url: string, init?: RequestInit) => {
+      body = JSON.parse(String(init?.body)) as typeof body;
+      return new Response(
+        JSON.stringify({
+          data: {
+            productByHandle: {
+              id: "gid://shopify/Product/1",
+              title: "Snowboard",
+              vendor: "Rint",
+              onlineStoreUrl:
+                "https://rint-test-store.myshopify.com/products/the-multi-location-snowboard",
+              options: [{ name: "Size", values: ["158"] }],
+              priceRangeV2: { minVariantPrice: { amount: "629.95", currencyCode: "BRL" } },
+              variants: { edges: [] },
+            },
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    };
+
+    const port = createShopifyProductSnapshotPort(
+      { shopDomain: "rint-test-store.myshopify.com", accessToken: "shpat_test" },
+      fetchImpl as typeof fetch,
+    );
+
+    const snapshot = await port.getProductSnapshot({
+      ref: null,
+      url: "https://rint-test-store.myshopify.com/products/the-multi-location-snowboard",
+    });
+
+    expect(body.query).toContain("$handle: String!");
+    expect(body.query).not.toContain("$id:");
+    expect(body.variables).toEqual({ handle: "the-multi-location-snowboard" });
+    expect(snapshot?.name).toBe("Snowboard");
+    expect(snapshot?.currentPrice).toBe(629.95);
+  });
+
+  it("queries product by ID! when a GID exists, never sending a null $id", async () => {
+    let body: { query?: string; variables?: Record<string, unknown> } = {};
+    const fetchImpl = async (_url: string, init?: RequestInit) => {
+      body = JSON.parse(String(init?.body)) as typeof body;
+      return new Response(
+        JSON.stringify({
+          data: {
+            product: {
+              id: "gid://shopify/Product/99",
+              title: "Hero",
+              options: [{ name: "Color", values: ["Black"] }],
+              priceRangeV2: { minVariantPrice: { amount: "10.00", currencyCode: "BRL" } },
+              variants: { edges: [] },
+            },
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    };
+
+    const port = createShopifyProductSnapshotPort(
+      { shopDomain: "inflow.myshopify.com", accessToken: "shpat_test" },
+      fetchImpl as typeof fetch,
+    );
+
+    const snapshot = await port.getProductSnapshot({
+      ref: "99",
+      url: "https://inflow.myshopify.com/products/hero",
+    });
+
+    expect(body.query).toContain("$id: ID!");
+    expect(body.query).not.toContain("$handle:");
+    expect(body.variables).toEqual({ id: "gid://shopify/Product/99" });
+    expect(snapshot?.externalRef).toBe("gid://shopify/Product/99");
   });
 });
