@@ -17,7 +17,7 @@
 
 1. Enviar cluster de prompts de comprador (5–10 por store)
 2. Receber resposta **em texto** com grounding metadata
-3. Converter para JSON estruturado **pós-resposta** (não pedir JSON direto ao modelo)
+3. Converter para JSON estruturado **pós-resposta** (não pedir JSON direto ao modelo). O segundo passe extrai `objetos_citados[]` — só fatos da resposta + grounding.
 4. Extrair citações por domínio/URL
 5. Validar URL antes de contar citação
 6. Calcular `citação_cliente` / `citação_concorrente` por cluster de prompts
@@ -76,5 +76,10 @@ Manter tabela de `why_code` para accordion de evidência (foundation trust-layer
 - `probe_runs` — metadata do run (modelo, timestamps, flags)
 - `results` — por prompt × citação × why_code
 - Derivados: `lacuna_snapshots` (slice futuro)
+- `diagnostic_queries.gemini_structured` — JSON do segundo passe, incluindo `objetos_citados[]`
+
+`objetos_citados` é um **derivado do probe**: um perfil por produto/loja nomeado na resposta citada ou no grounding (preço, dimensões, qualidade, prazo, avaliação, atributos). Campo `null` / `[]` se a IA não disse. Não inventar. Não buscar PDP de concorrente. Não é sync de catálogo. Google Trends permanece `phase_2` e não entra nesse array. Completar o array com 1 follow-up do motor está parked — [CITED-OBJECT-COMPLETION.md](../../rint-app/docs/CITED-OBJECT-COMPLETION.md).
 
 Sem replicar respostas completas do LLM além do necessário para evidência e auditoria.
+
+**Não** tratar o probe como thread de chat. Continuar a conversa no Rint (Interactions API / history) é horizonte parked — [PROOF-CONTINUE-CONVERSATION.md](../../rint-app/docs/PROOF-CONTINUE-CONVERSATION.md). O snapshot do run não se reescreve com um 2º turno do fundador. Um 3º passo do runner para fechar `null`s também não é MVP.

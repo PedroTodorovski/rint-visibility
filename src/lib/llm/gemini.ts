@@ -1,7 +1,13 @@
 import type { AppConfig } from "../../config.js";
-import { detectCitation } from "../citation.js";
 import { extractGroundingMetadata } from "../gemini-grounding.js";
 import { buildSingleProbeMessage } from "./batch-probe.js";
+import {
+  emptyCitedObject,
+  emptyGeminiStructured,
+  GEMINI_STRUCTURE_PROMPT_SHAPE,
+  hydrateGeminiStructured,
+  parseGeminiStructuredOutput,
+} from "./gemini-structured.js";
 import type { LlmClient, LlmProbeResult, LlmStructuredDiagnosticResult } from "./types.js";
 
 const DEFAULT_MODEL = "gemini-2.0-flash";
@@ -50,78 +56,38 @@ async function callGeminiWithGrounding(
   return { text, model, groundingUrls };
 }
 
-function extractJsonObject(raw: string): Record<string, unknown> | null {
-  let text = raw.trim();
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (fenced) text = fenced[1]!.trim();
-  const object = text.match(/\{[\s\S]*\}/);
-  if (object) text = object[0]!;
-
-  try {
-    return JSON.parse(text) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
+function mockStructuredFromShopperAnswer(): LlmStructuredDiagnosticResult["structured"] {
+  return hydrateGeminiStructured({
+    ...emptyGeminiStructured(),
+    concorrente_citado_nome: "Decathlon",
+    nome_marca_citada: "Burton",
+    objetos_citados: [
+      {
+        ...emptyCitedObject(),
+        marca: "Burton",
+        loja: "Decathlon",
+      },
+      {
+        ...emptyCitedObject(),
+        loja: "Mercado Livre",
+      },
+    ],
+  });
 }
 
-function stringOrNull(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-function numberOrNull(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string") {
-    const normalized = value.replace(/[^\d,.-]/g, "").replace(",", ".");
-    const parsed = Number(normalized);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-  return null;
-}
-
-function stringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .filter((item): item is string => typeof item === "string")
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-function buildDiagnosticTextPrompt(input: {
-  query: string;
-  storeName: string;
-  domain: string | null;
-  productUrl: string;
-  productName: string;
-  productAttributes: string[];
-}): string {
-  return `You are evaluating how Gemini answers a real ecommerce shopper query in Brazil.
+function buildDiagnosticTextPrompt(query: string): string {
+  return `You are answering a real ecommerce shopper query in Brazil.
 
 Shopper query:
-"${input.query}"
-
-Client brand/store:
-${input.storeName}
-
-Client domain:
-${input.domain ?? "unknown"}
-
-Client PDP:
-${input.productUrl}
-
-Client product from Shopify:
-${input.productName}
-
-Known Shopify attributes:
-${input.productAttributes.length > 0 ? input.productAttributes.map((a) => `- ${a}`).join("\n") : "- none"}
+"${query}"
 
 REQUIRED:
 1. Search the web with Google Search grounding.
-2. Answer as Gemini would answer the shopper, citing real brands/products/URLs when useful.
+2. Answer as Gemini would answer the shopper, citing real brands/products/URLs only when they appear in grounded search results.
 3. Do not return JSON.
-4. Include competitor product/store URLs if they are surfaced by grounded search.
-5. Answer in the same language as the shopper query.`;
+4. Do not invent a store, brand, product, or URL that search did not surface.
+5. If a specific store or product is not in the grounded results, say it was not found. Do not recommend it anyway.
+6. Answer in the same language as the shopper query.`;
 }
 
 function buildDiagnosticStructurePrompt(rawText: string): string {
@@ -133,36 +99,18 @@ ${rawText}
 """
 
 Return exactly this JSON shape:
-{
-  "cliente_foi_citado": boolean,
-  "concorrente_citado_nome": string | null,
-  "concorrente_citado_url": string | null,
-  "atributos_mencionados_gemini": string[],
-  "preco_citado": number | null,
-  "nome_marca_citada": string | null,
-  "produto_mencionado": string | null
-}
+${GEMINI_STRUCTURE_PROMPT_SHAPE}
 
 Rules:
 - Do not add markdown.
-- Use null when unknown.
-- Preserve competitor URL only when it is explicit in the quoted answer or grounding context.
-- Do not infer a price if no price is cited.`;
-}
-
-function parseStructuredOutput(raw: string): LlmStructuredDiagnosticResult["structured"] | null {
-  const parsed = extractJsonObject(raw);
-  if (!parsed) return null;
-
-  return {
-    cliente_foi_citado: parsed.cliente_foi_citado === true,
-    concorrente_citado_nome: stringOrNull(parsed.concorrente_citado_nome),
-    concorrente_citado_url: stringOrNull(parsed.concorrente_citado_url),
-    atributos_mencionados_gemini: stringArray(parsed.atributos_mencionados_gemini),
-    preco_citado: numberOrNull(parsed.preco_citado),
-    nome_marca_citada: stringOrNull(parsed.nome_marca_citada),
-    produto_mencionado: stringOrNull(parsed.produto_mencionado),
-  };
+- Use null or [] when the quoted answer and grounding did not state the fact. Do not invent.
+- objetos_citados: one entry per distinct product or store named in the quoted answer or grounding.
+- Put a fact on that object only (price, dimensions, quality, delivery time, rating, attributes). Copy the phrase as stated; do not normalize into a scale you did not see.
+- Preserve URL only when it is explicit in the quoted answer or grounding.
+- Do not infer a price if no price is cited.
+- atributos are characteristics of THAT object only (material, color, size, warranty, etc.).
+- Singular fields stay for compatibility: primary cited object, or the competitor if the client was not cited.
+- Set cliente_foi_citado true only if the quoted answer recommends the shopper buy from that store or product. A mention that the store or product was not found is false.`;
 }
 
 export function createGeminiClient(config: AppConfig): LlmClient {
@@ -230,53 +178,27 @@ export function createGeminiClient(config: AppConfig): LlmClient {
 
     async diagnoseQuery(input): Promise<LlmStructuredDiagnosticResult> {
       if (!apiKey) {
-        const citation = detectCitation(
-          `Recomendo avaliar ${input.productName} em ${input.productUrl}.`,
-          {
-            storeName: input.storeName,
-            domain: input.domain,
-            productUrls: [input.productUrl],
-            promptText: input.query,
-          },
-        );
-
         return {
           rawText:
-            citation.excerpt || `Recomendo avaliar ${input.productName} em ${input.productUrl}.`,
-          structured: {
-            cliente_foi_citado: citation.cited,
-            concorrente_citado_nome: null,
-            concorrente_citado_url: null,
-            atributos_mencionados_gemini: input.productAttributes.slice(0, 3),
-            preco_citado: null,
-            nome_marca_citada: input.storeName,
-            produto_mencionado: input.productName,
-          },
+            "Decathlon, Burton e Mercado Livre aparecem com frequência para quem busca prancha de snowboard no Brasil.",
+          structured: mockStructuredFromShopperAnswer(),
           model: "mock",
           mocked: true,
-          usedWebSearch: true,
-          groundingUrls: [input.productUrl],
+          usedWebSearch: false,
+          groundingUrls: [],
           calls: [
-            { type: "text", usedWebSearch: true, model: "mock" },
-            { type: "structure", usedWebSearch: true, model: "mock" },
+            { type: "text", usedWebSearch: false, model: "mock" },
+            { type: "structure", usedWebSearch: false, model: "mock" },
           ],
         };
       }
 
-      const textPrompt = buildDiagnosticTextPrompt(input);
+      const textPrompt = buildDiagnosticTextPrompt(input.query);
       const first = await callGeminiWithGrounding(apiKey, model, textPrompt, input.temperature);
       if (!first?.text) {
         return {
           rawText: "",
-          structured: {
-            cliente_foi_citado: false,
-            concorrente_citado_nome: null,
-            concorrente_citado_url: null,
-            atributos_mencionados_gemini: [],
-            preco_citado: null,
-            nome_marca_citada: null,
-            produto_mencionado: null,
-          },
+          structured: emptyGeminiStructured(),
           model: "mock",
           mocked: true,
           usedWebSearch: false,
@@ -295,19 +217,11 @@ export function createGeminiClient(config: AppConfig): LlmClient {
         structurePrompt,
         input.temperature,
       );
-      const structured = second?.text ? parseStructuredOutput(second.text) : null;
+      const structured = second?.text ? parseGeminiStructuredOutput(second.text) : null;
 
       return {
         rawText: first.text,
-        structured: structured ?? {
-          cliente_foi_citado: false,
-          concorrente_citado_nome: null,
-          concorrente_citado_url: null,
-          atributos_mencionados_gemini: [],
-          preco_citado: null,
-          nome_marca_citada: null,
-          produto_mencionado: null,
-        },
+        structured: structured ?? emptyGeminiStructured(),
         model,
         mocked: false,
         usedWebSearch: first.groundingUrls.length > 0 || (second?.groundingUrls.length ?? 0) > 0,

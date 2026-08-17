@@ -15,6 +15,8 @@ export type AppConfig = {
   redisUrl: string | null;
   diagnosticMaxSkus: number;
   diagnosticMaxQueriesPerSku: number;
+  /** Parallel Gemini diagnoseQuery calls per diagnostic job (bounded). */
+  diagnosticQueryConcurrency: number;
   diagnosticWebhookSecret: string | null;
   diagnosticJobAttempts: number;
   diagnosticJobBackoffMs: number;
@@ -48,6 +50,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     redisUrl: env.REDIS_URL?.trim() || null,
     diagnosticMaxSkus: readPositiveInteger(env.DIAGNOSTIC_MAX_SKUS, 3),
     diagnosticMaxQueriesPerSku: readPositiveInteger(env.DIAGNOSTIC_MAX_QUERIES_PER_SKU, 5),
+    diagnosticQueryConcurrency: readPositiveInteger(env.DIAGNOSTIC_QUERY_CONCURRENCY, 3),
     diagnosticWebhookSecret: env.DIAGNOSTIC_WEBHOOK_SECRET?.trim() || null,
     diagnosticJobAttempts: readPositiveInteger(env.DIAGNOSTIC_JOB_ATTEMPTS, 3),
     diagnosticJobBackoffMs: readPositiveInteger(env.DIAGNOSTIC_JOB_BACKOFF_MS, 30_000),

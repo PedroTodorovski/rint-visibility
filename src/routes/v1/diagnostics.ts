@@ -120,14 +120,19 @@ export async function registerDiagnosticsRoutes(
   app.get("/diagnostics/latest", async (request, reply) => {
     const workspaceId = requireWorkspaceId(request);
     const store = await repos.stores.requireByWorkspaceId(workspaceId);
+    const probeRunId = (request.query as { probe_run_id?: string }).probe_run_id?.trim() || "";
 
-    const latestJob = await repos.jobs.findLatestByStoreId(store.id);
+    const latestJob = probeRunId
+      ? await repos.jobs.findByProbeRunId(store.id, probeRunId)
+      : await repos.jobs.findLatestByStoreId(store.id);
     if (latestJob) {
       const payload = await diagnosticPayload(repos, latestJob.id);
       return reply.code(200).send(payload);
     }
 
-    const lacuna = await repos.lacunaSnapshots.findLatestByStoreId(store.id);
+    const lacuna = probeRunId
+      ? await repos.lacunaSnapshots.findByProbeRunId(probeRunId)
+      : await repos.lacunaSnapshots.findLatestByStoreId(store.id);
     if (!lacuna) {
       return reply.code(404).send({ error: "No diagnostic snapshot found", code: "NOT_FOUND" });
     }

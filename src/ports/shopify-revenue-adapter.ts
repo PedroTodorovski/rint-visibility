@@ -1,3 +1,4 @@
+import { assessPdpAdminQuality, plainTextLength } from "../lib/pdp-admin-quality.js";
 import type { ShopifyProductSnapshot } from "../services/diagnostic-types.js";
 import type {
   AnalysisWindow,
@@ -50,8 +51,10 @@ type ShopifyProductNode = {
   title?: string;
   handle?: string;
   vendor?: string | null;
+  productType?: string | null;
+  descriptionHtml?: string | null;
   onlineStoreUrl?: string | null;
-  featuredImage?: { altText?: string | null } | null;
+  featuredImage?: { url?: string | null; altText?: string | null } | null;
   priceRangeV2?: {
     minVariantPrice?: { amount?: string; currencyCode?: string };
   };
@@ -222,9 +225,11 @@ const PRODUCT_SNAPSHOT_FIELDS = `
                 title
                 handle
                 vendor
+                productType
+                descriptionHtml
                 onlineStoreUrl
                 totalInventory
-                featuredImage { altText }
+                featuredImage { url altText }
                 priceRangeV2 { minVariantPrice { amount currencyCode } }
                 options { name values }
                 metafields(first: 20, namespace: "custom") {
@@ -258,6 +263,11 @@ function productSnapshotGraphql(by: "id" | "handle"): string {
           `;
 }
 
+/** Shopify's empty-variant option — not a product type the founder should see. */
+export function isShopifyDefaultVariantOption(name: string, value: string): boolean {
+  return name.trim().toLowerCase() === "title" && value.trim().toLowerCase() === "default title";
+}
+
 function productAttributes(product: ShopifyProductNode): {
   attributes: string[];
   material: string | null;
@@ -265,11 +275,14 @@ function productAttributes(product: ShopifyProductNode): {
   color: string | null;
 } {
   const values = new Map<string, string>();
+  const productType = product.productType?.trim();
+  if (productType) values.set("__product_type", productType);
 
   for (const option of product.options ?? []) {
     const name = option.name?.trim();
     const first = option.values?.find((value) => value.trim().length > 0)?.trim();
-    if (name && first) values.set(name.toLowerCase(), `${name}: ${first}`);
+    if (!name || !first || isShopifyDefaultVariantOption(name, first)) continue;
+    values.set(name.toLowerCase(), `${name}: ${first}`);
   }
 
   for (const edge of product.metafields?.edges ?? []) {
@@ -283,7 +296,8 @@ function productAttributes(product: ShopifyProductNode): {
   for (const selected of selectedFromVariants) {
     const name = selected.name?.trim();
     const value = selected.value?.trim();
-    if (name && value) values.set(name.toLowerCase(), `${name}: ${value}`);
+    if (!name || !value || isShopifyDefaultVariantOption(name, value)) continue;
+    values.set(name.toLowerCase(), `${name}: ${value}`);
   }
 
   const findValue = (needles: string[]): string | null => {
@@ -355,6 +369,18 @@ export function createShopifyProductSnapshotPort(
       if (!product?.id || !product.title) return null;
 
       const attributes = productAttributes(product);
+      const image = product.featuredImage?.url?.trim() || null;
+      const imageAlt = product.featuredImage?.altText?.trim() || null;
+      const descriptionChars = plainTextLength(product.descriptionHtml);
+      const admin = assessPdpAdminQuality({
+        attributes: attributes.attributes,
+        material: attributes.material,
+        color: attributes.color,
+        dimension: attributes.dimension,
+        image,
+        imageAlt,
+        descriptionHtml: product.descriptionHtml,
+      });
       const variants = (product.variants?.edges ?? []).map((edge) => {
         const node = edge.node;
         return {
@@ -371,6 +397,7 @@ export function createShopifyProductSnapshotPort(
         };
       });
 
+      const baseMeta = metaFor(shopDomain);
       return {
         externalRef: product.id,
         url: product.onlineStoreUrl ?? input.url,
@@ -385,7 +412,14 @@ export function createShopifyProductSnapshotPort(
         material: attributes.material,
         dimension: attributes.dimension,
         color: attributes.color,
-        meta: metaFor(shopDomain),
+        image,
+        imageAlt,
+        descriptionChars,
+        meta: {
+          source: baseMeta.source,
+          fetchedAt: baseMeta.fetchedAt,
+          admin,
+        },
       };
     },
   };

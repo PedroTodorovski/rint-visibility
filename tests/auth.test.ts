@@ -118,6 +118,20 @@ describe("assertRuntimeConfig", () => {
     ).toThrow(/SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required/);
   });
 
+  it("throws in production when REDIS_URL is missing", () => {
+    expect(() =>
+      assertRuntimeConfig(
+        loadConfig({
+          NODE_ENV: "production",
+          VISIBILITY_API_KEY: "secret",
+          SUPABASE_URL: "https://example.supabase.co",
+          SUPABASE_SERVICE_ROLE_KEY: "service-role",
+          REDIS_URL: "",
+        }),
+      ),
+    ).toThrow(/REDIS_URL is required/);
+  });
+
   it("allows missing credentials outside production", () => {
     expect(() =>
       assertRuntimeConfig(loadConfig({ NODE_ENV: "development", VISIBILITY_API_KEY: "" })),

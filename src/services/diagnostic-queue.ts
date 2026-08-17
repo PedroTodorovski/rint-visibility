@@ -43,7 +43,9 @@ export function createInProcessDiagnosticQueue(input: {
             config: input.config,
           },
           payload,
-        );
+        ).catch((err) => {
+          console.error("[diagnostic-queue] in-process job crashed", payload.jobId, err);
+        });
       }, 0);
     },
   };
@@ -113,8 +115,9 @@ export function createDiagnosticWorker(input: {
     {
       connection: redisConnectionOptions(input.config.redisUrl),
       concurrency: 2,
-      stalledInterval: 30_000,
-      lockDuration: 10 * 60_000,
+      // Gemini jobs can run many grounded calls; keep the lock past worst-case wall time.
+      stalledInterval: 60_000,
+      lockDuration: 30 * 60_000,
     },
   );
 }

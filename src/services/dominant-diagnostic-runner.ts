@@ -1,6 +1,14 @@
 import type { AppConfig } from "../config.js";
+import { scoreClientCitation } from "../lib/citation-gold.js";
 import { AppError } from "../lib/errors.js";
+import { resolveGroundingUrls } from "../lib/grounding-resolve.js";
+import {
+  citedObjectsFromStructured,
+  hydrateGeminiStructured,
+  mergeCitedObjects,
+} from "../lib/llm/gemini-structured.js";
 import type { LlmClients, LlmStructuredDiagnosticResult } from "../lib/llm/index.js";
+import { mapPool } from "../lib/map-pool.js";
 import { filterAliveUrls } from "../lib/url-validator.js";
 import { createIntegrationPorts } from "../ports/mock-adapters.js";
 import { DEFAULT_PORT_TTL_MS, readThroughCache } from "../ports/read-through-cache.js";
@@ -13,7 +21,7 @@ import {
   groupQueriesByProduct,
   validateAndSnapshotSku,
 } from "./diagnostic-input.js";
-import { buildDiagnosticOutput } from "./diagnostic-output.js";
+import { buildCitationFinancialRisks, buildDiagnosticOutput } from "./diagnostic-output.js";
 import { computeTriage } from "./diagnostic-triage.js";
 import {
   type DiagnosticPlan,
@@ -36,14 +44,8 @@ type RunnerDeps = {
   config: AppConfig;
 };
 
-function requireShopifyConnection(integrationConfig: IntegrationRegistryConfig | undefined): void {
-  if (!integrationConfig?.shopify?.shopDomain) {
-    throw new AppError(
-      400,
-      "VALIDATION_ERROR",
-      "Shopify precisa estar conectado para rodar diagnóstico",
-    );
-  }
+function shopifyConnected(integrationConfig: IntegrationRegistryConfig | undefined): boolean {
+  return Boolean(integrationConfig?.shopify?.shopDomain);
 }
 
 function planSnapshot(
@@ -154,17 +156,31 @@ async function executeQuery(input: {
     const validation = competitorUrl ? await filterAliveUrls([competitorUrl]) : new Map();
     const competitorAlive = competitorUrl ? validation.get(competitorUrl)?.alive === true : false;
     const deadUrls = competitorUrl && !competitorAlive ? [competitorUrl] : [];
+    const resolved = await resolveGroundingUrls(result.groundingUrls);
+    const citation = scoreClientCitation({
+      text: result.rawText,
+      identity: {
+        storeName: input.store.name,
+        domain: input.store.domain,
+        productUrl: input.sku.url,
+        productName: input.sku.shopify_data.name,
+      },
+      resolved,
+      llmClaimedCited: result.structured.cliente_foi_citado,
+    });
 
     executions.push({
       raw_text: result.rawText,
       structured: {
         ...result.structured,
+        cliente_foi_citado: citation.cited,
         concorrente_citado_url: competitorAlive ? competitorUrl : null,
       },
       grounding_urls: result.groundingUrls,
       dead_urls: deadUrls,
       model: result.model,
       mocked: result.mocked,
+      citation,
     });
   }
 
@@ -197,7 +213,7 @@ async function executeQuery(input: {
     prompt_id: input.prompt.id,
     query_text: input.prompt.prompt_text,
     gemini_raw: executions.map((execution) => execution.raw_text).join("\n\n---\n\n"),
-    gemini_structured: {
+    gemini_structured: hydrateGeminiStructured({
       cliente_foi_citado: clientCited,
       concorrente_citado_nome: competitorName,
       concorrente_citado_url: competitorUrl,
@@ -205,7 +221,10 @@ async function executeQuery(input: {
       preco_citado: citedPrice,
       nome_marca_citada: brand,
       produto_mencionado: product,
-    },
+      objetos_citados: mergeCitedObjects(
+        executions.map((execution) => citedObjectsFromStructured(execution.structured)),
+      ),
+    }),
     cliente_foi_citado: clientCited,
     concorrente_citado_nome: competitorName,
     concorrente_citado_url: competitorUrl,
@@ -253,7 +272,7 @@ export async function runDominantDiagnostic(
   });
 
   try {
-    requireShopifyConnection(payload.integrationConfig);
+    const gold = shopifyConnected(payload.integrationConfig);
 
     const store = await deps.repos.stores.requireByWorkspaceId(payload.workspaceId);
     const [productsAll, prompts] = await Promise.all([
@@ -286,7 +305,9 @@ export async function runDominantDiagnostic(
 
     const skuRows: Array<{ row: DiagnosticSkuRow; product: ProductRow; prompts: PromptRow[] }> = [];
     for (const product of products) {
-      const snapshot = await validateAndSnapshotSku(product, ports.shopifyProduct);
+      const snapshot = await validateAndSnapshotSku(product, ports.shopifyProduct, {
+        shopifyConnected: gold,
+      });
       const row = await deps.repos.diagnosticSkus.create({
         job_id: payload.jobId,
         product_id: product.id,
@@ -297,19 +318,24 @@ export async function runDominantDiagnostic(
       skuRows.push({ row, product, prompts: promptsByProduct.get(product.id) ?? [] });
     }
 
-    const queryRows: DiagnosticQueryRow[] = [];
-    for (const sku of skuRows) {
-      for (const prompt of sku.prompts) {
-        const draft = await executeQuery({
+    const queryWork = skuRows.flatMap((sku) =>
+      sku.prompts.map((prompt) => ({ sku: sku.row, prompt })),
+    );
+    const queryDrafts = await mapPool(
+      queryWork,
+      deps.config.diagnosticQueryConcurrency,
+      async ({ sku, prompt }) =>
+        executeQuery({
           store,
-          sku: sku.row,
+          sku,
           prompt,
           llm: deps.llm,
           config: runConfig,
-        });
-        const row = await deps.repos.diagnosticQueries.create(draft);
-        queryRows.push(row);
-      }
+        }),
+    );
+    const queryRows: DiagnosticQueryRow[] = [];
+    for (const draft of queryDrafts) {
+      queryRows.push(await deps.repos.diagnosticQueries.create(draft));
     }
 
     const { primary, selection: dominantSkuSelection } = selectDominantSku(skuRows, queryRows);
@@ -369,49 +395,66 @@ export async function runDominantDiagnostic(
       ),
     );
 
-    const triage = computeTriage({
-      skus: skuRows.map((sku) => ({ id: sku.row.id, shopify: sku.row.shopify_data })),
-      queries: queryRows,
-      mediaSignals: {
-        meta: metaRead.data,
-        googleAds: googleAdsRead.data,
-        merchantCenter: merchantRead.data,
-        shopifyRevenue: shopifyRead.data,
-      },
-    });
+    const finance = {
+      ga4: ga4Read.data,
+      shopify: shopifyRead.data,
+      meta: metaRead.data,
+      conversion: conversion?.data ?? null,
+      googleAds: googleAdsRead.data,
+      merchantCenter: merchantRead.data,
+      trends: trendsRead.data,
+      seoGaps,
+    };
 
-    await deps.repos.triageResults.create({
-      job_id: payload.jobId,
-      sku_id: primary.row.id,
-      coherence_level: triage.coherenceLevel,
-      track_assigned: triage.track,
-      checks: {
-        ...triage.checks,
-        dominant_sku_selection: dominantSkuSelection,
-        config: planSnapshot(runConfig, payload.integrationConfig),
-      },
-    });
+    let assignedTrack: string | null = null;
 
-    const output = buildDiagnosticOutput({
-      jobId: payload.jobId,
-      primarySku: primary.row,
-      skus: skuRows.map((sku) => sku.row),
-      queries: queryRows,
-      track: triage.track,
-      finance: {
-        ga4: ga4Read.data,
-        shopify: shopifyRead.data,
-        meta: metaRead.data,
-        conversion: conversion?.data ?? null,
-        googleAds: googleAdsRead.data,
-        merchantCenter: merchantRead.data,
-        trends: trendsRead.data,
-        seoGaps,
-      },
-    });
+    if (gold) {
+      const triage = computeTriage({
+        skus: skuRows.map((sku) => ({ id: sku.row.id, shopify: sku.row.shopify_data })),
+        queries: queryRows,
+        mediaSignals: {
+          meta: metaRead.data,
+          googleAds: googleAdsRead.data,
+          merchantCenter: merchantRead.data,
+          shopifyRevenue: shopifyRead.data,
+        },
+      });
 
-    await deps.repos.financialRisk.createMany(output.risks);
-    await deps.repos.diagnostics.create(output.diagnostic);
+      await deps.repos.triageResults.create({
+        job_id: payload.jobId,
+        sku_id: primary.row.id,
+        coherence_level: triage.coherenceLevel,
+        track_assigned: triage.track,
+        checks: {
+          ...triage.checks,
+          dominant_sku_selection: dominantSkuSelection,
+          config: planSnapshot(runConfig, payload.integrationConfig),
+        },
+      });
+
+      const output = buildDiagnosticOutput({
+        jobId: payload.jobId,
+        primarySku: primary.row,
+        skus: skuRows.map((sku) => sku.row),
+        queries: queryRows,
+        track: triage.track,
+        finance,
+      });
+
+      await deps.repos.financialRisk.createMany(output.risks);
+      await deps.repos.diagnostics.create(output.diagnostic);
+      assignedTrack = triage.track;
+    } else {
+      await deps.repos.financialRisk.createMany(
+        buildCitationFinancialRisks({
+          jobId: payload.jobId,
+          primarySku: primary.row,
+          skus: skuRows.map((sku) => sku.row),
+          queries: queryRows,
+          finance,
+        }),
+      );
+    }
     await deps.repos.usageEvents.create({
       job_id: payload.jobId,
       tokens_consumed: 0,
@@ -434,7 +477,7 @@ export async function runDominantDiagnostic(
     await sendWebhook({
       webhookUrl: job.webhook_url,
       secret: deps.config.diagnosticWebhookSecret,
-      payload: { job_id: payload.jobId, status: "completed", track: triage.track },
+      payload: { job_id: payload.jobId, status: "completed", track: assignedTrack },
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Diagnostic job failed";

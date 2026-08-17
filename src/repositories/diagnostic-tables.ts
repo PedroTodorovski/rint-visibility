@@ -194,6 +194,20 @@ export class JobsRepository {
     if (error) throw mapPostgrestError(error, "Failed to load latest diagnostic job");
     return data as JobRow | null;
   }
+
+  async findByProbeRunId(storeId: string, probeRunId: string): Promise<JobRow | null> {
+    const { data, error } = await this.db
+      .from("jobs")
+      .select("*")
+      .eq("store_id", storeId)
+      .eq("probe_run_id", probeRunId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) throw mapPostgrestError(error, "Failed to load diagnostic job for probe run");
+    return data as JobRow | null;
+  }
 }
 
 export class DiagnosticSkusRepository {
