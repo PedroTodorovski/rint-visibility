@@ -102,18 +102,26 @@ export type JobsRepositoryLike = Pick<
   | "findById"
   | "findLatestByStoreId"
   | "findByProbeRunId"
+  | "listByStoreId"
+  | "countByStoreId"
 >;
-export type DiagnosticSkusRepositoryLike = Pick<DiagnosticSkusRepository, "create" | "listByJobId">;
+export type DiagnosticSkusRepositoryLike = Pick<
+  DiagnosticSkusRepository,
+  "create" | "listByJobId" | "listByJobIds"
+>;
 export type DiagnosticQueriesRepositoryLike = Pick<
   DiagnosticQueriesRepository,
-  "create" | "listByJobId"
+  "create" | "listByJobId" | "listByJobIds"
 >;
 export type TriageResultsRepositoryLike = Pick<TriageResultsRepository, "create" | "findByJobId">;
 export type FinancialRiskRepositoryLike = Pick<
   FinancialRiskRepository,
   "createMany" | "listByJobId"
 >;
-export type DiagnosticsRepositoryLike = Pick<DiagnosticsRepository, "create" | "findByJobId">;
+export type DiagnosticsRepositoryLike = Pick<
+  DiagnosticsRepository,
+  "create" | "findByJobId" | "listByJobIds"
+>;
 export type UsageEventsRepositoryLike = Pick<UsageEventsRepository, "create">;
 
 export type VisibilityRepositories = {

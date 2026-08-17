@@ -208,6 +208,34 @@ export class JobsRepository {
     if (error) throw mapPostgrestError(error, "Failed to load diagnostic job for probe run");
     return data as JobRow | null;
   }
+
+  async listByStoreId(
+    storeId: string,
+    options: { limit?: number; offset?: number } = {},
+  ): Promise<JobRow[]> {
+    const limit = options.limit ?? 20;
+    const offset = options.offset ?? 0;
+
+    const { data, error } = await this.db
+      .from("jobs")
+      .select("*")
+      .eq("store_id", storeId)
+      .order("created_at", { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (error) throw mapPostgrestError(error, "Failed to list diagnostic jobs");
+    return (data ?? []) as JobRow[];
+  }
+
+  async countByStoreId(storeId: string): Promise<number> {
+    const { count, error } = await this.db
+      .from("jobs")
+      .select("id", { count: "exact", head: true })
+      .eq("store_id", storeId);
+
+    if (error) throw mapPostgrestError(error, "Failed to count diagnostic jobs");
+    return count ?? 0;
+  }
 }
 
 export class DiagnosticSkusRepository {
@@ -242,6 +270,18 @@ export class DiagnosticSkusRepository {
     if (error) throw mapPostgrestError(error, "Failed to list diagnostic SKUs");
     return (data ?? []) as DiagnosticSkuRow[];
   }
+
+  async listByJobIds(jobIds: string[]): Promise<DiagnosticSkuRow[]> {
+    if (jobIds.length === 0) return [];
+    const { data, error } = await this.db
+      .from("skus")
+      .select("*")
+      .in("job_id", jobIds)
+      .order("created_at", { ascending: true });
+
+    if (error) throw mapPostgrestError(error, "Failed to list diagnostic SKUs");
+    return (data ?? []) as DiagnosticSkuRow[];
+  }
 }
 
 export class DiagnosticQueriesRepository {
@@ -258,6 +298,18 @@ export class DiagnosticQueriesRepository {
       .from("queries")
       .select("*")
       .eq("job_id", jobId)
+      .order("created_at", { ascending: true });
+
+    if (error) throw mapPostgrestError(error, "Failed to list diagnostic queries");
+    return (data ?? []) as DiagnosticQueryRow[];
+  }
+
+  async listByJobIds(jobIds: string[]): Promise<DiagnosticQueryRow[]> {
+    if (jobIds.length === 0) return [];
+    const { data, error } = await this.db
+      .from("queries")
+      .select("*")
+      .in("job_id", jobIds)
       .order("created_at", { ascending: true });
 
     if (error) throw mapPostgrestError(error, "Failed to list diagnostic queries");
@@ -330,6 +382,18 @@ export class DiagnosticsRepository {
 
     if (error) throw mapPostgrestError(error, "Failed to load diagnostic");
     return data as DiagnosticRow | null;
+  }
+
+  async listByJobIds(jobIds: string[]): Promise<DiagnosticRow[]> {
+    if (jobIds.length === 0) return [];
+    const { data, error } = await this.db
+      .from("diagnostics")
+      .select("*")
+      .in("job_id", jobIds)
+      .order("created_at", { ascending: false });
+
+    if (error) throw mapPostgrestError(error, "Failed to list diagnostics");
+    return (data ?? []) as DiagnosticRow[];
   }
 }
 

@@ -14,7 +14,7 @@ progress:
 
 - **Phase:** 1 — MVP 2026 (lacuna de receita)
 - **Branch:** `feat/diagnosis-floor-and-home-kit`
-- **Shipped this slice:** Bounded-concurrency Gemini queries (`DIAGNOSTIC_QUERY_CONCURRENCY`). Admin-as-gold PDP + `objetos_citados` on `gemini_structured` (no migration). Health reports `diagnostic_queue`.
+- **Shipped this slice:** Bounded-concurrency Gemini queries (`DIAGNOSTIC_QUERY_CONCURRENCY`). Admin-as-gold PDP + `objetos_citados` on `gemini_structured` (no migration). Health reports `diagnostic_queue`. `GET /v1/jobs` compact summaries (`sku_names`, cited/total, `providers`) for the admin history list.
 - **In flight:** PRs for merge (Pedro)
 - **Next:** After merge — confirm Railway worker + `diagnostic_queue=bullmq`; no Supabase migration in this slice
 
@@ -27,6 +27,7 @@ progress:
 
 ## Decisions Log
 
+- 2026-08-17: `GET /v1/jobs` devolve resumo compacto (`sku_names`, `cliente_foi_citado`, `providers` no snapshot) para a lista em rint-app. Sem secrets. Jobs antigos inferem Shopify do snapshot quando dá.
 - 2026-08-17: Queries Gemini no job dominante correm em paralelo limitado (`DIAGNOSTIC_QUERY_CONCURRENCY`, default 3). Lock BullMQ 30 min. Produção exige Redis + worker.
 - 2026-08-16: Completar `objetos_citados` com 1 follow-up do motor está parked — `rint-app/docs/CITED-OBJECT-COMPLETION.md`. Array incompleto permanece válido.
 - 2026-08-16: `objetos_citados` no `gemini_structured` (jsonb) — perfil do objeto citado no segundo passe. Sem migration. Sem sync de catálogo. Triage LLM só compara preço/atributos quando o objeto é o SKU do cliente.
