@@ -1,3 +1,6 @@
+import type { ClientCitationEvidence } from "../lib/citation-gold.js";
+import type { GeminiStructuredOutput } from "../lib/llm/gemini-structured.js";
+
 export type DiagnosticPlan = "essential" | "pro";
 
 export type DiagnosticPhase = "mvp" | "phase_2" | "phase_3";
@@ -27,18 +30,37 @@ export type ShopifyProductSnapshot = {
   material?: string | null;
   dimension?: string | null;
   color?: string | null;
-  meta: { source: string; fetchedAt: string };
+  image: string | null;
+  /** Featured image alt from Admin — empty hurts AI/crawler recognition. */
+  imageAlt?: string | null;
+  /** Plain-text length of descriptionHtml from Admin (pontual). */
+  descriptionChars?: number;
+  meta: {
+    source: string;
+    fetchedAt: string;
+    /** true/false when public PDP was readable; null when unverified (password/block/fetch fail). */
+    hasJsonLd?: boolean | null;
+    hasOg?: boolean;
+    imageSource?: "shopify_api" | "json_ld" | "og" | null;
+    /** Admin catalog readiness — gold when Shopify is connected. */
+    admin?: {
+      attributeCount: number;
+      descriptionChars: number;
+      hasMaterial: boolean;
+      hasColor: boolean;
+      hasDimension: boolean;
+      hasImageAlt: boolean;
+      thin: boolean;
+      gaps: Array<"attributes" | "description" | "physical" | "image_alt">;
+    };
+  };
 };
 
-export type GeminiStructuredOutput = {
-  cliente_foi_citado: boolean;
-  concorrente_citado_nome: string | null;
-  concorrente_citado_url: string | null;
-  atributos_mencionados_gemini: string[];
-  preco_citado: number | null;
-  nome_marca_citada: string | null;
-  produto_mencionado: string | null;
-};
+export type {
+  ClientIdentity,
+  GeminiCitedObject,
+  GeminiStructuredOutput,
+} from "../lib/llm/gemini-structured.js";
 
 export type QueryExecutionRecord = {
   raw_text: string;
@@ -47,6 +69,7 @@ export type QueryExecutionRecord = {
   dead_urls: string[];
   model: string;
   mocked: boolean;
+  citation: ClientCitationEvidence;
 };
 
 export type DiagnosticRunConfig = {

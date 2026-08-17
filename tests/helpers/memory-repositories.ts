@@ -494,6 +494,13 @@ export function createMemoryRepositories(): VisibilityRepositories {
             .sort((a, b) => b.created_at.localeCompare(a.created_at))[0] ?? null
         );
       },
+      async findByProbeRunId(storeId: string, probeRunId: string) {
+        return (
+          [...jobRows]
+            .filter((row) => row.store_id === storeId && row.probe_run_id === probeRunId)
+            .sort((a, b) => b.created_at.localeCompare(a.created_at))[0] ?? null
+        );
+      },
     },
     diagnosticSkus: {
       async create(input: CreateDiagnosticSkuInput) {

@@ -1,3 +1,5 @@
+import type { GeminiStructuredOutput } from "./gemini-structured.js";
+
 export type LlmProvider = "gemini";
 
 export type LlmProbeResult = {
@@ -17,15 +19,7 @@ export type LlmBatchProbeResult = {
 
 export type LlmStructuredDiagnosticResult = {
   rawText: string;
-  structured: {
-    cliente_foi_citado: boolean;
-    concorrente_citado_nome: string | null;
-    concorrente_citado_url: string | null;
-    atributos_mencionados_gemini: string[];
-    preco_citado: number | null;
-    nome_marca_citada: string | null;
-    produto_mencionado: string | null;
-  };
+  structured: GeminiStructuredOutput;
   model: string;
   mocked: boolean;
   usedWebSearch: boolean;

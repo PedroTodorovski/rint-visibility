@@ -19,6 +19,7 @@ describe("GET /health", () => {
     expect(body.status).toBe("ok");
     expect(body.service).toBe("rint-visibility");
     expect(typeof body.timestamp).toBe("string");
+    expect(body.diagnostic_queue).toBe("in_process");
   });
 });
 

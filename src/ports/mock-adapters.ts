@@ -84,6 +84,19 @@ export function createShopifyProductSnapshotPort(
       const source = config.shopify?.shopDomain ?? "mock";
       const name = productNameFromUrl(input.url);
       const attributes = ["material", "dimensão", "cor"];
+      const material = "material informado";
+      const dimension = "dimensão informada";
+      const color = "Natural";
+      const admin = {
+        attributeCount: 3,
+        descriptionChars: 120,
+        hasMaterial: true,
+        hasColor: true,
+        hasDimension: true,
+        hasImageAlt: false,
+        thin: false,
+        gaps: [] as Array<"attributes" | "description" | "physical" | "image_alt">,
+      };
       return {
         externalRef: input.ref,
         url: input.url,
@@ -102,10 +115,13 @@ export function createShopifyProductSnapshotPort(
           },
         ],
         inventoryAvailable: 12,
-        material: "material informado",
-        dimension: "dimensão informada",
-        color: "Natural",
-        meta: { source, fetchedAt: new Date().toISOString() },
+        material,
+        dimension,
+        color,
+        image: null,
+        imageAlt: null,
+        descriptionChars: 120,
+        meta: { source, fetchedAt: new Date().toISOString(), admin },
       };
     },
   };

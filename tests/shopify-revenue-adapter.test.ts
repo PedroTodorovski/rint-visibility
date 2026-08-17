@@ -106,8 +106,10 @@ describe("shopify-revenue-adapter", () => {
               id: "gid://shopify/Product/1",
               title: "Snowboard",
               vendor: "Rint",
+              productType: "Snowboard",
               onlineStoreUrl:
                 "https://rint-test-store.myshopify.com/products/the-multi-location-snowboard",
+              featuredImage: { url: "https://cdn.shopify.com/s/files/1/snowboard.jpg" },
               options: [{ name: "Size", values: ["158"] }],
               priceRangeV2: { minVariantPrice: { amount: "629.95", currencyCode: "BRL" } },
               variants: { edges: [] },
@@ -129,10 +131,20 @@ describe("shopify-revenue-adapter", () => {
     });
 
     expect(body.query).toContain("$handle: String!");
+    expect(body.query).toContain("productType");
+    expect(body.query).toContain("descriptionHtml");
     expect(body.query).not.toContain("$id:");
     expect(body.variables).toEqual({ handle: "the-multi-location-snowboard" });
     expect(snapshot?.name).toBe("Snowboard");
     expect(snapshot?.currentPrice).toBe(629.95);
+    expect(snapshot?.image).toBe("https://cdn.shopify.com/s/files/1/snowboard.jpg");
+    expect(snapshot?.attributes[0]).toBe("Snowboard");
+    expect(snapshot?.attributes).toContain("Size: 158");
+    expect(snapshot?.attributes).not.toContain("Title: Default Title");
+    expect(snapshot?.meta.admin?.thin).toBe(true);
+    expect(snapshot?.meta.admin?.gaps).toEqual(
+      expect.arrayContaining(["attributes", "description", "image_alt"]),
+    );
   });
 
   it("queries product by ID! when a GID exists, never sending a null $id", async () => {
@@ -169,5 +181,48 @@ describe("shopify-revenue-adapter", () => {
     expect(body.query).not.toContain("$handle:");
     expect(body.variables).toEqual({ id: "gid://shopify/Product/99" });
     expect(snapshot?.externalRef).toBe("gid://shopify/Product/99");
+  });
+
+  it("drops Shopify's dummy Title: Default Title and keeps productType", async () => {
+    const fetchImpl = async () =>
+      new Response(
+        JSON.stringify({
+          data: {
+            product: {
+              id: "gid://shopify/Product/2",
+              title: "The Multi-location Snowboard",
+              vendor: "rint-test-store",
+              productType: "snowboard",
+              options: [{ name: "Title", values: ["Default Title"] }],
+              priceRangeV2: { minVariantPrice: { amount: "729.95", currencyCode: "BRL" } },
+              variants: {
+                edges: [
+                  {
+                    node: {
+                      id: "gid://shopify/ProductVariant/1",
+                      title: "Default Title",
+                      selectedOptions: [{ name: "Title", value: "Default Title" }],
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+
+    const port = createShopifyProductSnapshotPort(
+      { shopDomain: "rint-test-store.myshopify.com", accessToken: "shpat_test" },
+      fetchImpl as typeof fetch,
+    );
+
+    const snapshot = await port.getProductSnapshot({
+      ref: "2",
+      url: "https://rint-test-store.myshopify.com/products/the-multi-location-snowboard",
+    });
+
+    expect(snapshot?.attributes).toEqual(["snowboard"]);
+    expect(snapshot?.brand).toBe("rint-test-store");
   });
 });

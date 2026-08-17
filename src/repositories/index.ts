@@ -96,7 +96,12 @@ export type DualTrackOutputsRepositoryLike =
   import("./dual-track-outputs.js").DualTrackOutputsRepositoryLike;
 export type JobsRepositoryLike = Pick<
   JobsRepository,
-  "create" | "updateStatus" | "findByIdForStore" | "findById" | "findLatestByStoreId"
+  | "create"
+  | "updateStatus"
+  | "findByIdForStore"
+  | "findById"
+  | "findLatestByStoreId"
+  | "findByProbeRunId"
 >;
 export type DiagnosticSkusRepositoryLike = Pick<DiagnosticSkusRepository, "create" | "listByJobId">;
 export type DiagnosticQueriesRepositoryLike = Pick<

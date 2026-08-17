@@ -1,3 +1,4 @@
+import { citedObjectsFromStructured, isCitedClientObject } from "../lib/llm/gemini-structured.js";
 import type {
   GoogleAdsSkuWaste,
   MerchantCenterProductStatus,
@@ -8,7 +9,7 @@ import type { DiagnosticQueryRow } from "../repositories/diagnostic-tables.js";
 import type {
   CoherenceLevel,
   DiagnosticTrack,
-  GeminiStructuredOutput,
+  GeminiCitedObject,
   ShopifyProductSnapshot,
 } from "./diagnostic-types.js";
 
@@ -54,16 +55,22 @@ function attributesExist(cited: string[], real: string[]): boolean | null {
   });
 }
 
-function brandMatches(
-  structured: GeminiStructuredOutput,
+function brandMatchesObject(
+  object: GeminiCitedObject,
   shopify: ShopifyProductSnapshot,
 ): boolean | null {
-  const cited = normalized(structured.nome_marca_citada ?? structured.produto_mencionado);
+  const cited = normalized(object.marca ?? object.produto);
   if (!cited) return null;
   const realNames = [shopify.name, shopify.brand].map(normalized).filter(Boolean);
   return realNames.some(
     (name) => name.includes(cited) || cited.includes(name.split(/\s+/)[0] ?? name),
   );
+}
+
+function mergeCheck(current: boolean | null, next: boolean | null): boolean | null {
+  if (next === false || current === false) return false;
+  if (next === true || current === true) return true;
+  return null;
 }
 
 function hasMediaWaste(signals: TriageInput["mediaSignals"]): boolean {
@@ -93,10 +100,18 @@ export function computeTriage(input: TriageInput): TriageOutcome {
   for (const query of input.queries) {
     const shopify = skuById.get(query.sku_id);
     if (!shopify) continue;
-    const structured = query.gemini_structured;
-    const price = priceMatches(structured.preco_citado, shopify.currentPrice);
-    const attrs = attributesExist(structured.atributos_mencionados_gemini, shopify.attributes);
-    const brand = brandMatches(structured, shopify);
+    const client = { name: shopify.name, brand: shopify.brand, url: shopify.url };
+    const clientObjects = citedObjectsFromStructured(query.gemini_structured).filter((object) =>
+      isCitedClientObject(object, client),
+    );
+    let price: boolean | null = null;
+    let attrs: boolean | null = null;
+    let brand: boolean | null = null;
+    for (const object of clientObjects) {
+      price = mergeCheck(price, priceMatches(object.preco, shopify.currentPrice));
+      attrs = mergeCheck(attrs, attributesExist(object.atributos, shopify.attributes));
+      brand = mergeCheck(brand, brandMatchesObject(object, shopify));
+    }
 
     checks.push({
       query_id: query.id,

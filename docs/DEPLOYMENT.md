@@ -27,6 +27,10 @@ The dominant diagnostics engine is asynchronous. Production must run two Railway
 
 Both services need the same runtime variables. The API enqueues jobs in BullMQ; the worker consumes them and writes job status, evidence, financial risk, and final diagnostics back to Supabase.
 
+`GET /health` reports `diagnostic_queue: "bullmq" | "in_process"`. In production this must be `"bullmq"`, and the worker service must be healthy — otherwise jobs stay `pending`/`running` forever.
+
+Within each job, Gemini queries run with bounded concurrency (`DIAGNOSTIC_QUERY_CONCURRENCY`, default 3) so multi-query diagnoses finish in wall-clock time proportional to batches, not N× sequential calls.
+
 For local development without `REDIS_URL`, the API uses an in-process queue fallback. Do not rely on that fallback in production.
 
 ## Custom domain — `visibility.rint.io`
@@ -74,6 +78,7 @@ Expected: `{"status":"ok","service":"rint-visibility",...}`
 | `SUPABASE_URL` | Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server-side only |
 | `REDIS_URL` | Required in production for BullMQ diagnostics queue |
+| `DIAGNOSTIC_QUERY_CONCURRENCY` | Optional, defaults to `3` — parallel Gemini queries per job |
 | `DIAGNOSTIC_JOB_ATTEMPTS` | Optional, defaults to `3` |
 | `DIAGNOSTIC_JOB_BACKOFF_MS` | Optional, defaults to `30000` |
 | `DIAGNOSTIC_WEBHOOK_SECRET` | Optional shared secret for diagnostic completion webhooks |

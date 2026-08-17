@@ -7,6 +7,7 @@ import { buildApp } from "../src/app.js";
 import { loadConfig } from "../src/config.js";
 import { authHeaders } from "../src/lib/request.js";
 import { computeTriage } from "../src/services/diagnostic-triage.js";
+import type { GeminiStructuredOutput } from "../src/services/diagnostic-types.js";
 import { selectDominantSku } from "../src/services/dominant-diagnostic-runner.js";
 import { createMemoryRepositories } from "./helpers/memory-repositories.js";
 
@@ -129,19 +130,37 @@ describe("dominant diagnostics API", () => {
     expect(diagnostic.json().diagnostic.track).toMatch(/^track_/);
     expect(diagnostic.json().triage_result.track_assigned).toBe(diagnostic.json().diagnostic.track);
     expect(diagnostic.json().queries[0].num_execucoes).toBe(3);
-    expect(diagnostic.json().queries[0].confianca).toContain("3 de 3");
+    expect(diagnostic.json().queries[0].confianca).toContain("0 de 3");
+    expect(diagnostic.json().queries[0].cliente_foi_citado).toBe(false);
+    expect(diagnostic.json().queries[0].executions[0].citation.prompt).toBe("blind_shopper");
+    expect(diagnostic.json().queries[0].executions[0].citation.cited).toBe(false);
     expect(
       diagnostic.json().financial_risk.map((row: { formula_type: string }) => row.formula_type),
     ).toContain("lacuna_ai_floor");
     expect(
       diagnostic.json().financial_risk.map((row: { formula_type: string }) => row.formula_type),
     ).toContain("compensation_cost_media");
+
+    const byRun = await app.inject({
+      method: "GET",
+      url: `/v1/diagnostics/latest?workspace_id=${WORKSPACE_ID}&probe_run_id=${job.probe_run_id}`,
+      headers: authHeaders(TEST_API_KEY),
+    });
+    expect(byRun.statusCode).toBe(200);
+    expect(byRun.json().job.id).toBe(run.json().job_id);
+    expect(byRun.json().queries.length).toBeGreaterThan(0);
   });
 
-  it("hard-stops job when Shopify is not connected", async () => {
+  it("completes on the public PDP floor when Shopify is not connected", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => new Response("", { status: 200 })),
+      vi.fn(
+        async () =>
+          new Response(
+            `<html><head><script type="application/ld+json">{"@type":"Product","name":"Hero Sofa","offers":{"price":"4200","priceCurrency":"BRL"}}</script></head></html>`,
+            { status: 200, headers: { "Content-Type": "text/html" } },
+          ),
+      ),
     );
 
     const app = await buildApp(testConfig(), { repositories: createMemoryRepositories() });
@@ -155,8 +174,24 @@ describe("dominant diagnostics API", () => {
     });
 
     expect(run.statusCode).toBe(202);
-    const job = await waitForStatus(app, run.json().job_id, "failed");
-    expect(job.error_message).toMatch(/Shopify precisa estar conectado/);
+    const job = await waitForStatus(app, run.json().job_id, "completed");
+    expect(job.status).toBe("completed");
+
+    const diagnostic = await app.inject({
+      method: "GET",
+      url: `/v1/diagnostics/${run.json().job_id}?workspace_id=${WORKSPACE_ID}`,
+      headers: authHeaders(TEST_API_KEY),
+    });
+
+    expect(diagnostic.statusCode).toBe(200);
+    expect(diagnostic.json().diagnostic).toBeNull();
+    expect(diagnostic.json().triage_result).toBeNull();
+    expect(diagnostic.json().queries.length).toBeGreaterThan(0);
+    expect(diagnostic.json().skus[0].shopify_data.meta.source).toBe("public_pdp");
+    expect(diagnostic.json().skus[0].shopify_data.name).toBe("Hero Sofa");
+    expect(
+      diagnostic.json().financial_risk.map((row: { formula_type: string }) => row.formula_type),
+    ).toContain("lacuna_ai_floor");
   });
 });
 
@@ -212,57 +247,113 @@ describe("dominant SKU selection", () => {
 });
 
 describe("dominant triage", () => {
-  it("routes incoherent Gemini output to exactly track_llm", () => {
+  const shopify = {
+    externalRef: "gid://shopify/Product/1",
+    url: "https://acme.example/products/hero",
+    name: "Hero Sofa",
+    brand: "Acme",
+    currentPrice: 500,
+    currency: "BRL",
+    attributes: ["Material: Boucle"],
+    variants: [],
+    inventoryAvailable: 10,
+    image: null,
+    meta: { source: "test", fetchedAt: new Date().toISOString() },
+  };
+
+  function query(structured: GeminiStructuredOutput, extra: Record<string, unknown> = {}) {
+    return {
+      id: "q1",
+      job_id: "job-1",
+      sku_id: "sku-1",
+      prompt_id: "p1",
+      query_text: "query",
+      gemini_raw: "raw",
+      gemini_structured: structured,
+      cliente_foi_citado: false,
+      concorrente_citado_nome: structured.concorrente_citado_nome ?? null,
+      concorrente_citado_url: structured.concorrente_citado_url ?? null,
+      atributos_mencionados_gemini: [],
+      temperatura_gemini: 0,
+      num_execucoes: 1,
+      confianca: null,
+      executions: [],
+      created_at: new Date().toISOString(),
+      ...extra,
+    };
+  }
+
+  it("does not treat a cheaper cited competitor as LLM incoherence", () => {
     const outcome = computeTriage({
-      skus: [
-        {
-          id: "sku-1",
-          shopify: {
-            externalRef: "gid://shopify/Product/1",
-            url: "https://acme.example/products/hero",
-            name: "Hero Sofa",
-            brand: "Acme",
-            currentPrice: 500,
-            currency: "BRL",
-            attributes: ["Material: Boucle"],
-            variants: [],
-            inventoryAvailable: 10,
-            meta: { source: "test", fetchedAt: new Date().toISOString() },
-          },
-        },
-      ],
+      skus: [{ id: "sku-1", shopify }],
       queries: [
-        {
-          id: "q1",
-          job_id: "job-1",
-          sku_id: "sku-1",
-          prompt_id: "p1",
-          query_text: "query",
-          gemini_raw: "raw",
-          gemini_structured: {
-            cliente_foi_citado: false,
-            concorrente_citado_nome: "Other",
-            concorrente_citado_url: "https://other.example/p",
-            atributos_mencionados_gemini: [],
-            preco_citado: 99,
-            nome_marca_citada: "Outra Marca",
-            produto_mencionado: "Outro Produto",
-          },
+        query({
           cliente_foi_citado: false,
           concorrente_citado_nome: "Other",
           concorrente_citado_url: "https://other.example/p",
           atributos_mencionados_gemini: [],
-          temperatura_gemini: 0,
-          num_execucoes: 1,
-          confianca: null,
-          executions: [],
-          created_at: new Date().toISOString(),
-        },
+          preco_citado: 99,
+          nome_marca_citada: "Outra Marca",
+          produto_mencionado: "Outro Produto",
+          objetos_citados: [
+            {
+              marca: "Outra Marca",
+              loja: "Other",
+              produto: "Outro Produto",
+              url: "https://other.example/p",
+              preco: 99,
+              moeda: "BRL",
+              dimensoes: null,
+              qualidade: null,
+              prazo_entrega: null,
+              avaliacao: null,
+              atributos: [],
+            },
+          ],
+        }),
+      ],
+    });
+
+    expect(outcome.coherenceLevel).toBe("coerente");
+    expect(outcome.track).toBe("track_produto");
+    expect(outcome.checks.one_dominant_track).toBe(true);
+  });
+
+  it("routes a wrong price on the client object to track_llm", () => {
+    const outcome = computeTriage({
+      skus: [{ id: "sku-1", shopify }],
+      queries: [
+        query(
+          {
+            cliente_foi_citado: true,
+            concorrente_citado_nome: null,
+            concorrente_citado_url: null,
+            atributos_mencionados_gemini: [],
+            preco_citado: 99,
+            nome_marca_citada: "Acme",
+            produto_mencionado: "Hero Sofa",
+            objetos_citados: [
+              {
+                marca: "Acme",
+                loja: null,
+                produto: "Hero Sofa",
+                url: "https://acme.example/products/hero",
+                preco: 99,
+                moeda: "BRL",
+                dimensoes: null,
+                qualidade: null,
+                prazo_entrega: null,
+                avaliacao: null,
+                atributos: [],
+              },
+            ],
+          },
+          { cliente_foi_citado: true },
+        ),
       ],
     });
 
     expect(outcome.coherenceLevel).toBe("incoerente");
     expect(outcome.track).toBe("track_llm");
-    expect(outcome.checks.one_dominant_track).toBe(true);
   });
 });
