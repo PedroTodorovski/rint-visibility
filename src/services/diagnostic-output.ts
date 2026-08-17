@@ -15,6 +15,7 @@ import type {
   DiagnosticQueryRow,
   DiagnosticSkuRow,
 } from "../repositories/diagnostic-tables.js";
+import { publicStorefrontUnreadable } from "./diagnostic-triage.js";
 import type { DiagnosticTrack, ShopifyProductSnapshot } from "./diagnostic-types.js";
 import { aggregateCitationCounts, computeRevenueGap } from "./revenue-gap-engine.js";
 
@@ -215,6 +216,39 @@ export function buildDiagnosticOutput(input: DiagnosticOutputInput): DiagnosticO
           },
           prazo:
             "variável — depende de frequência de indexação do Gemini e volume de conteúdo publicado",
+        },
+      },
+      input.primarySku.shopify_data.name,
+      input.queries,
+    );
+  }
+
+  if (input.track === "track_pdp" && publicStorefrontUnreadable(shopifyData)) {
+    return withHeadline(
+      {
+        risks: commonRisks,
+        diagnostic: {
+          job_id: input.jobId,
+          sku_id: input.primarySku.id,
+          track: "track_pdp",
+          causes: [
+            {
+              type: "storefront_closed",
+              text: "A loja não está aberta publicamente. Se o cliente não entra, a IA também não entra.",
+            },
+          ],
+          actions: [
+            {
+              type: "tecnica",
+              text: "Deixe esta URL pública — tire a senha ou o bloqueio da página do produto.",
+            },
+          ],
+          next_steps: {
+            owner: "o fundador na loja",
+            first_action:
+              "Deixar esta URL pública — tirar a senha ou o bloqueio da página do produto.",
+          },
+          prazo: "imediato — a IA só lê o que o público lê",
         },
       },
       input.primarySku.shopify_data.name,

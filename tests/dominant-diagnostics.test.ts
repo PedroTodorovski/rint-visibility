@@ -319,6 +319,74 @@ describe("dominant triage", () => {
     expect(outcome.checks.one_dominant_track).toBe(true);
   });
 
+  it("routes a closed Shopify storefront to track_pdp even when Admin has the SKU", () => {
+    const outcome = computeTriage({
+      skus: [
+        {
+          id: "sku-1",
+          shopify: {
+            ...shopify,
+            meta: {
+              ...shopify.meta,
+              source: "shopify_api",
+              hasJsonLd: null,
+              storefrontAccess: "password",
+            },
+          },
+        },
+      ],
+      queries: [
+        query({
+          cliente_foi_citado: false,
+          concorrente_citado_nome: "Other",
+          concorrente_citado_url: "https://other.example/p",
+          atributos_mencionados_gemini: [],
+          preco_citado: 99,
+          nome_marca_citada: "Outra Marca",
+          produto_mencionado: "Outro Produto",
+          objetos_citados: [],
+        }),
+      ],
+    });
+
+    expect(outcome.track).toBe("track_pdp");
+    expect(outcome.checks.storefront_not_public).toBe(true);
+  });
+
+  it("routes a non-public URL to track_pdp on a public PDP snapshot, not only Shopify Admin", () => {
+    const outcome = computeTriage({
+      skus: [
+        {
+          id: "sku-1",
+          shopify: {
+            ...shopify,
+            meta: {
+              source: "public_pdp",
+              fetchedAt: shopify.meta.fetchedAt,
+              hasJsonLd: null,
+              storefrontAccess: "password",
+            },
+          },
+        },
+      ],
+      queries: [
+        query({
+          cliente_foi_citado: false,
+          concorrente_citado_nome: "Other",
+          concorrente_citado_url: "https://other.example/p",
+          atributos_mencionados_gemini: [],
+          preco_citado: 99,
+          nome_marca_citada: "Outra Marca",
+          produto_mencionado: "Outro Produto",
+          objetos_citados: [],
+        }),
+      ],
+    });
+
+    expect(outcome.track).toBe("track_pdp");
+    expect(outcome.checks.storefront_not_public).toBe(true);
+  });
+
   it("routes a wrong price on the client object to track_llm", () => {
     const outcome = computeTriage({
       skus: [{ id: "sku-1", shopify }],
