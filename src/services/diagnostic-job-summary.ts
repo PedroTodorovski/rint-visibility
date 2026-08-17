@@ -47,11 +47,7 @@ export function providersFromJobSnapshot(
   }
 
   const inferred = new Set<DiagnosticHistoryProvider>();
-  if (
-    skuSources.some(
-      (source) => source === "shopify_api" || source.startsWith("shopify"),
-    )
-  ) {
+  if (skuSources.some((source) => source === "shopify_api" || source.startsWith("shopify"))) {
     inferred.add("shopify");
   }
   return DIAGNOSTIC_HISTORY_PROVIDERS.filter((provider) => inferred.has(provider));
