@@ -4,6 +4,10 @@ import { notFound } from "../../lib/errors.js";
 import { requireWorkspaceId } from "../../lib/request.js";
 import type { IntegrationRegistryConfig } from "../../ports/types.js";
 import type { VisibilityRepositories } from "../../repositories/index.js";
+import {
+  providersFromIntegrationConfig,
+  summarizeDiagnosticJobs,
+} from "../../services/diagnostic-job-summary.js";
 import type { DiagnosticQueue } from "../../services/diagnostic-queue.js";
 import { normalizeDiagnosticPlan } from "../../services/diagnostic-types.js";
 
@@ -72,6 +76,7 @@ export async function registerDiagnosticsRoutes(
       config_snapshot: {
         plan: body.plan,
         has_integration_config: Boolean(body.integrationConfig),
+        providers: providersFromIntegrationConfig(body.integrationConfig),
         max_skus: config.diagnosticMaxSkus,
         max_queries_per_sku: config.diagnosticMaxQueriesPerSku,
       },
@@ -90,6 +95,34 @@ export async function registerDiagnosticsRoutes(
       status: job.status,
       status_url: `/v1/jobs/${job.id}?workspace_id=${encodeURIComponent(workspaceId)}`,
       result_url: `/v1/diagnostics/${job.id}?workspace_id=${encodeURIComponent(workspaceId)}`,
+    });
+  });
+
+  app.get("/jobs", async (request, reply) => {
+    const workspaceId = requireWorkspaceId(request);
+    const store = await repos.stores.requireByWorkspaceId(workspaceId);
+    const query = request.query as { page?: string; limit?: string };
+    const requestedPage = Math.max(1, Number.parseInt(query.page ?? "1", 10) || 1);
+    const limit = Math.min(50, Math.max(1, Number.parseInt(query.limit ?? "20", 10) || 20));
+    const total = await repos.jobs.countByStoreId(store.id);
+    const totalPages = Math.max(1, Math.ceil(total / limit));
+    const page = Math.min(totalPages, requestedPage);
+    const jobs = await repos.jobs.listByStoreId(store.id, {
+      limit,
+      offset: (page - 1) * limit,
+    });
+    const jobIds = jobs.map((job) => job.id);
+    const [skus, queries, diagnostics] = await Promise.all([
+      repos.diagnosticSkus.listByJobIds(jobIds),
+      repos.diagnosticQueries.listByJobIds(jobIds),
+      repos.diagnostics.listByJobIds(jobIds),
+    ]);
+
+    return reply.code(200).send({
+      jobs: summarizeDiagnosticJobs(jobs, skus, queries, diagnostics),
+      page,
+      limit,
+      total,
     });
   });
 

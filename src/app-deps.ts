@@ -47,6 +47,7 @@ async function registerUnconfiguredCrudRoutes(app: FastifyInstance): Promise<voi
   app.get("/probe-runs/compare", respond);
   app.get("/probe-runs/:runId/results", respond);
   app.post("/diagnostics/run", respond);
+  app.get("/jobs", respond);
   app.get("/jobs/:jobId", respond);
   app.get("/diagnostics/:jobId", respond);
   app.get("/diagnostics/latest", respond);

@@ -501,6 +501,17 @@ export function createMemoryRepositories(): VisibilityRepositories {
             .sort((a, b) => b.created_at.localeCompare(a.created_at))[0] ?? null
         );
       },
+      async listByStoreId(storeId: string, options: { limit?: number; offset?: number } = {}) {
+        const limit = options.limit ?? 20;
+        const offset = options.offset ?? 0;
+        return [...jobRows]
+          .filter((row) => row.store_id === storeId)
+          .sort((a, b) => b.created_at.localeCompare(a.created_at))
+          .slice(offset, offset + limit);
+      },
+      async countByStoreId(storeId: string) {
+        return jobRows.filter((row) => row.store_id === storeId).length;
+      },
     },
     diagnosticSkus: {
       async create(input: CreateDiagnosticSkuInput) {
@@ -521,6 +532,10 @@ export function createMemoryRepositories(): VisibilityRepositories {
       async listByJobId(jobId: string) {
         return diagnosticSkuRows.filter((row) => row.job_id === jobId);
       },
+      async listByJobIds(jobIds: string[]) {
+        const idSet = new Set(jobIds);
+        return diagnosticSkuRows.filter((row) => idSet.has(row.job_id));
+      },
     },
     diagnosticQueries: {
       async create(input: CreateDiagnosticQueryInput) {
@@ -534,6 +549,10 @@ export function createMemoryRepositories(): VisibilityRepositories {
       },
       async listByJobId(jobId: string) {
         return diagnosticQueryRows.filter((row) => row.job_id === jobId);
+      },
+      async listByJobIds(jobIds: string[]) {
+        const idSet = new Set(jobIds);
+        return diagnosticQueryRows.filter((row) => idSet.has(row.job_id));
       },
     },
     triageResults: {
@@ -576,6 +595,10 @@ export function createMemoryRepositories(): VisibilityRepositories {
       },
       async findByJobId(jobId: string) {
         return diagnosticRows.find((row) => row.job_id === jobId) ?? null;
+      },
+      async listByJobIds(jobIds: string[]) {
+        const idSet = new Set(jobIds);
+        return diagnosticRows.filter((row) => idSet.has(row.job_id));
       },
     },
     usageEvents: {
