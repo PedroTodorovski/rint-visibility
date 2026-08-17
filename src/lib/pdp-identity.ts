@@ -27,6 +27,9 @@ export type PublicPdpIdentity = {
   hasOg: boolean;
 };
 
+/** What a public GET actually reached — Admin catalog is not the storefront. */
+export type StorefrontAccess = "open" | "password" | "blocked" | "unverified";
+
 export type PublicPdpFetch = {
   url: string;
   alive: boolean;
@@ -34,6 +37,7 @@ export type PublicPdpFetch = {
   html: string | null;
   /** Password wall, bot challenge, or empty shell — do not treat as “schema absent”. */
   blocked: boolean;
+  storefrontAccess: StorefrontAccess;
   identity: PublicPdpIdentity;
 };
 
@@ -399,6 +403,36 @@ function tagText(html: string, tag: string): string | null {
   return text || null;
 }
 
+/** Password wall on any storefront — public and AI crawlers cannot open the URL. */
+export function isPasswordStorefrontHtml(html: string, finalUrl: string): boolean {
+  try {
+    const path = new URL(finalUrl).pathname.toLowerCase();
+    if (path === "/password" || path.startsWith("/password/")) return true;
+  } catch {
+    /* ignore */
+  }
+  const sample = html.slice(0, 8_000).toLowerCase();
+  if (sample.includes("password-protected") || sample.includes("storefront_password")) return true;
+  if (sample.includes("this shop is password") || sample.includes("store is password protected")) {
+    return true;
+  }
+  if (sample.includes("loja protegida por senha")) return true;
+  return sample.includes('name="password"') && sample.includes("/password");
+}
+
+export function classifyStorefrontAccess(input: {
+  alive: boolean;
+  status?: number | null;
+  html: string | null;
+  finalUrl: string;
+}): StorefrontAccess {
+  if (input.status === 401 || input.status === 403) return "blocked";
+  if (!input.alive || !input.html) return "unverified";
+  if (isPasswordStorefrontHtml(input.html, input.finalUrl)) return "password";
+  if (isBlockedStorefrontHtml(input.html, input.finalUrl)) return "blocked";
+  return "open";
+}
+
 /**
  * Password walls / bot challenges look “alive” (HTTP 200) but are not the PDP.
  * Claiming JSON-LD absent here is a false negative.
@@ -406,14 +440,12 @@ function tagText(html: string, tag: string): string | null {
 export function isBlockedStorefrontHtml(html: string, finalUrl: string): boolean {
   try {
     const path = new URL(finalUrl).pathname.toLowerCase();
-    if (path === "/password" || path.startsWith("/password/") || path.includes("/challenge")) {
-      return true;
-    }
+    if (path.includes("/challenge")) return true;
   } catch {
     /* ignore */
   }
+  if (isPasswordStorefrontHtml(html, finalUrl)) return true;
   const sample = html.slice(0, 8_000).toLowerCase();
-  if (sample.includes('name="password"') && sample.includes("/password")) return true;
   if (sample.includes("cf-browser-verification") || sample.includes("cf-challenge")) return true;
   if (sample.includes("attention required") && sample.includes("cloudflare")) return true;
   // Empty / tiny shells after redirects are not verifiable PDPs.
@@ -501,18 +533,120 @@ export function parsePublicPdpHtml(html: string, baseUrl: string | null = null):
   return identity;
 }
 
+function withStorefrontAccess(row: Omit<PublicPdpFetch, "storefrontAccess">): PublicPdpFetch {
+  return {
+    ...row,
+    storefrontAccess: classifyStorefrontAccess({
+      alive: row.alive,
+      status: row.status,
+      html: row.html,
+      finalUrl: row.url,
+    }),
+  };
+}
+
+/** Commerce host the public PDP sits on. Null when we cannot tell — never invent. */
+export type StorefrontPlatform = "shopify" | "vtex" | "nuvemshop";
+
+function hostnameOf(url: string): string | null {
+  try {
+    return new URL(url).hostname.toLowerCase().replace(/^www\./, "");
+  } catch {
+    return null;
+  }
+}
+
+function platformFromHostname(host: string): StorefrontPlatform | null {
+  if (host === "myshopify.com" || host.endsWith(".myshopify.com")) return "shopify";
+  if (
+    host === "myvtex.com" ||
+    host.endsWith(".myvtex.com") ||
+    host.endsWith(".vtexcommercestable.com.br") ||
+    host.endsWith(".vtexlocal.com.br") ||
+    host.endsWith(".vteximg.com.br") ||
+    host.endsWith(".vtexassets.com")
+  ) {
+    return "vtex";
+  }
+  if (
+    host.endsWith(".nuvemshop.com.br") ||
+    host.endsWith(".nuvemshop.com") ||
+    host.endsWith(".lojavirtualnuvem.com.br") ||
+    host.endsWith(".mitiendanube.com")
+  ) {
+    return "nuvemshop";
+  }
+  return null;
+}
+
+function htmlPlatformVotes(html: string): Set<StorefrontPlatform> {
+  const sample = html.slice(0, 80_000).toLowerCase();
+  const votes = new Set<StorefrontPlatform>();
+  if (
+    sample.includes("cdn.shopify.com") ||
+    sample.includes("shopify-section") ||
+    sample.includes("shopify.theme") ||
+    sample.includes("storefront_password") ||
+    sample.includes("myshopify.com") ||
+    /name=["']generator["'][^>]*content=["'][^"']*shopify/i.test(html) ||
+    /content=["'][^"']*shopify["'][^>]*name=["']generator/i.test(html)
+  ) {
+    votes.add("shopify");
+  }
+  if (
+    sample.includes("vtexassets.com") ||
+    sample.includes("io.vtex.com.br") ||
+    sample.includes("vteximg.com.br") ||
+    sample.includes("vtexcommercestable") ||
+    sample.includes("vtex-render") ||
+    sample.includes("/arquivos/ids/") ||
+    /name=["']generator["'][^>]*content=["'][^"']*vtex/i.test(html) ||
+    /content=["'][^"']*vtex["'][^>]*name=["']generator/i.test(html)
+  ) {
+    votes.add("vtex");
+  }
+  if (
+    sample.includes("nuvemshop") ||
+    sample.includes("tiendanube") ||
+    sample.includes("lojavirtualnuvem") ||
+    sample.includes("mitiendanube") ||
+    sample.includes("nimbus-cdn")
+  ) {
+    votes.add("nuvemshop");
+  }
+  return votes;
+}
+
+/**
+ * Layered storefront host: URL host, then JSON-LD / schema / HTML fingerprints.
+ * Password walls rarely expose Product JSON-LD; host + password-page marks still count.
+ */
+export function detectStorefrontPlatform(input: {
+  url: string;
+  html?: string | null;
+}): StorefrontPlatform | null {
+  const host = hostnameOf(input.url);
+  const fromHost = host ? platformFromHostname(host) : null;
+  const html = input.html?.trim() ? input.html : "";
+  const votes = html ? htmlPlatformVotes(html) : new Set<StorefrontPlatform>();
+
+  if (fromHost) return fromHost;
+  if (votes.size === 1) return [...votes][0] ?? null;
+  return null;
+}
+
 export async function fetchPublicPdp(url: string): Promise<PublicPdpFetch> {
   try {
     const parsed = new URL(url);
     if (!["http:", "https:"].includes(parsed.protocol)) {
-      return {
+      return withStorefrontAccess({
         url,
         alive: false,
         status: null,
         html: null,
         blocked: false,
         identity: emptyIdentity(null),
-      };
+      });
     }
 
     const res = await fetch(url, {
@@ -530,44 +664,44 @@ export async function fetchPublicPdp(url: string): Promise<PublicPdpFetch> {
     const html = alive ? await res.text() : null;
     const finalUrl = res.url || url;
     if (!html) {
-      return {
+      return withStorefrontAccess({
         url: finalUrl,
         alive,
         status: res.status,
         html: null,
         blocked: false,
         identity: emptyIdentity(null),
-      };
+      });
     }
 
     const blocked = isBlockedStorefrontHtml(html, finalUrl);
     if (blocked) {
-      return {
+      return withStorefrontAccess({
         url: finalUrl,
         alive,
         status: res.status,
         html,
         blocked: true,
         identity: emptyIdentity(null),
-      };
+      });
     }
 
-    return {
+    return withStorefrontAccess({
       url: finalUrl,
       alive,
       status: res.status,
       html,
       blocked: false,
       identity: parsePublicPdpHtml(html, finalUrl),
-    };
+    });
   } catch {
-    return {
+    return withStorefrontAccess({
       url,
       alive: false,
       status: null,
       html: null,
       blocked: false,
       identity: emptyIdentity(null),
-    };
+    });
   }
 }

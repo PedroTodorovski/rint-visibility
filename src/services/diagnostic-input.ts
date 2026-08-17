@@ -1,6 +1,6 @@
 import { validationError } from "../lib/errors.js";
 import { assessPdpAdminQuality } from "../lib/pdp-admin-quality.js";
-import { fetchPublicPdp } from "../lib/pdp-identity.js";
+import { detectStorefrontPlatform, fetchPublicPdp } from "../lib/pdp-identity.js";
 import type { ShopifyProductSnapshotPort } from "../ports/types.js";
 import type { ProductRow, PromptRow } from "../repositories/types.js";
 import type { DiagnosticRunConfig, ShopifyProductSnapshot } from "./diagnostic-types.js";
@@ -68,6 +68,31 @@ export function groupQueriesByProduct(
   return map;
 }
 
+function displayNameFromUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    const slug = parsed.pathname.split("/").filter(Boolean).pop() ?? "";
+    const fromSlug = decodeURIComponent(slug).replace(/[-_]+/g, " ").trim();
+    return fromSlug || parsed.host.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
+}
+
+function publicUrlUnreadable(fetched: {
+  blocked: boolean;
+  storefrontAccess: string;
+  status: number | null;
+}): boolean {
+  return (
+    fetched.blocked ||
+    fetched.storefrontAccess === "password" ||
+    fetched.storefrontAccess === "blocked" ||
+    fetched.status === 401 ||
+    fetched.status === 403
+  );
+}
+
 export async function validateAndSnapshotSku(
   product: ProductRow,
   shopifyProduct: ShopifyProductSnapshotPort,
@@ -81,7 +106,7 @@ export async function validateAndSnapshotSku(
 
   if (options.shopifyConnected) {
     const fetched = await fetchPublicPdp(product.url);
-    if (!fetched.alive) {
+    if (!fetched.alive && !publicUrlUnreadable(fetched)) {
       errors.push(`URL não respondeu com status ativo (${fetched.status ?? "sem resposta"})`);
     }
 
@@ -139,6 +164,11 @@ export async function validateAndSnapshotSku(
         source: snapshot.meta.source || "shopify_api",
         hasJsonLd: fetched.blocked ? null : fetched.identity.hasJsonLd,
         hasOg: fetched.blocked ? false : fetched.identity.hasOg,
+        storefrontAccess: fetched.storefrontAccess,
+        storefrontPlatform: detectStorefrontPlatform({
+          url: fetched.url || product.url,
+          html: fetched.html,
+        }),
         imageSource: snapshot.image ? "shopify_api" : fetched.identity.imageSource,
         admin,
       },
@@ -146,10 +176,43 @@ export async function validateAndSnapshotSku(
   }
 
   const fetched = await fetchPublicPdp(product.url);
+  if (publicUrlUnreadable(fetched)) {
+    const name = product.title?.trim() || displayNameFromUrl(product.url);
+    if (errors.length > 0) {
+      throw validationError(`Validação do SKU falhou para ${product.url}: ${errors.join("; ")}`);
+    }
+    return {
+      externalRef: product.external_ref,
+      url: product.url,
+      name,
+      brand: fetched.identity.brand,
+      currentPrice: fetched.identity.currentPrice,
+      currency: fetched.identity.currency,
+      attributes: fetched.identity.attributes,
+      variants: [],
+      inventoryAvailable: null,
+      material: fetched.identity.material,
+      dimension: fetched.identity.dimension,
+      color: fetched.identity.color,
+      image: fetched.identity.image,
+      meta: {
+        source: "public_pdp",
+        fetchedAt: new Date().toISOString(),
+        hasJsonLd: null,
+        hasOg: false,
+        storefrontAccess:
+          fetched.storefrontAccess === "open" ? "blocked" : fetched.storefrontAccess,
+        storefrontPlatform: detectStorefrontPlatform({
+          url: fetched.url || product.url,
+          html: fetched.html,
+        }),
+        imageSource: fetched.identity.imageSource,
+      },
+    };
+  }
+
   if (!fetched.alive) {
     errors.push(`URL não respondeu com status ativo (${fetched.status ?? "sem resposta"})`);
-  } else if (fetched.blocked) {
-    errors.push("Página pública inacessível (loja com senha ou bloqueio de bot)");
   }
 
   const name = fetched.identity.name?.trim() || product.title?.trim() || "";
@@ -180,6 +243,11 @@ export async function validateAndSnapshotSku(
       fetchedAt: new Date().toISOString(),
       hasJsonLd: fetched.identity.hasJsonLd,
       hasOg: fetched.identity.hasOg,
+      storefrontAccess: fetched.storefrontAccess,
+      storefrontPlatform: detectStorefrontPlatform({
+        url: fetched.url || product.url,
+        html: fetched.html,
+      }),
       imageSource: fetched.identity.imageSource,
     },
   };

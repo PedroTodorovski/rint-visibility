@@ -13,10 +13,10 @@ progress:
 ## Current Position
 
 - **Phase:** 1 — MVP 2026 (lacuna de receita)
-- **Branch:** `feat/diagnosis-floor-and-home-kit`
-- **Shipped this slice:** Bounded-concurrency Gemini queries (`DIAGNOSTIC_QUERY_CONCURRENCY`). Admin-as-gold PDP + `objetos_citados` on `gemini_structured` (no migration). Health reports `diagnostic_queue`. `GET /v1/jobs` compact summaries (`sku_names`, cited/total, `providers`) for the admin history list.
-- **In flight:** PRs for merge (Pedro)
-- **Next:** After merge — confirm Railway worker + `diagnostic_queue=bullmq`; no Supabase migration in this slice
+- **Branch:** `feat/diagnosis-cause-gold`
+- **Shipped this slice:** Bounded-concurrency Gemini queries (`DIAGNOSTIC_QUERY_CONCURRENCY`). Admin-as-gold PDP + `objetos_citados` on `gemini_structured` (no migration). Health reports `diagnostic_queue`. `GET /v1/jobs` compact summaries (`sku_names`, cited/total, `providers`) for the admin history list. **Closed URL:** `storefrontAccess` (password / blocked) + `storefrontPlatform` (shopify/vtex/nuvemshop, never invented) on the diagnostic snapshot. Password wall is PDP, not “schema absent”.
+- **In flight:** PR `feat/diagnosis-cause-gold` for merge (Pedro)
+- **Next:** Merge with rint-app gold cause. No Supabase migration in this slice.
 
 ## Repo boundaries
 

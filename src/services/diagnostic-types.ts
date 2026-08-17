@@ -41,6 +41,10 @@ export type ShopifyProductSnapshot = {
     /** true/false when public PDP was readable; null when unverified (password/block/fetch fail). */
     hasJsonLd?: boolean | null;
     hasOg?: boolean;
+    /** Public GET result — a catalog listing is not the public URL. */
+    storefrontAccess?: "open" | "password" | "blocked" | "unverified";
+    /** Derived from URL / JSON-LD / HTML at diagnosis time. Null = unknown. */
+    storefrontPlatform?: "shopify" | "vtex" | "nuvemshop" | null;
     imageSource?: "shopify_api" | "json_ld" | "og" | null;
     /** Admin catalog readiness — gold when Shopify is connected. */
     admin?: {

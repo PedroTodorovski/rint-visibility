@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { isBlockedStorefrontHtml, parsePublicPdpHtml } from "../src/lib/pdp-identity.js";
+import {
+  classifyStorefrontAccess,
+  detectStorefrontPlatform,
+  isBlockedStorefrontHtml,
+  isPasswordStorefrontHtml,
+  parsePublicPdpHtml,
+} from "../src/lib/pdp-identity.js";
 
 describe("parsePublicPdpHtml", () => {
   it("reads JSON-LD Product name, price and attributes", () => {
@@ -187,10 +193,84 @@ describe("parsePublicPdpHtml", () => {
       ),
     ).toBe(true);
     expect(
-      isBlockedStorefrontHtml(
-        `<html><head><script type="application/ld+json">{"@type":"Product","name":"X"}</script></head></html>`,
-        "https://loja.myshopify.com/products/x",
+      isPasswordStorefrontHtml(
+        `<html><body><form action="/password"><input name="password"></form></body></html>`,
+        "https://loja.myshopify.com/password",
       ),
-    ).toBe(false);
+    ).toBe(true);
+    expect(
+      classifyStorefrontAccess({
+        alive: true,
+        html: `<html><body><form action="/password"><input name="password"></form></body></html>`,
+        finalUrl: "https://loja.myshopify.com/password",
+      }),
+    ).toBe("password");
+    expect(
+      classifyStorefrontAccess({
+        alive: false,
+        status: 403,
+        html: null,
+        finalUrl: "https://vtex.example/p/sku",
+      }),
+    ).toBe("blocked");
+    expect(
+      isPasswordStorefrontHtml(
+        `<html><body><p>This shop is password protected</p></body></html>`,
+        "https://brand.example/products/x",
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("detectStorefrontPlatform", () => {
+  it("trusts Shopify / VTEX / Nuvemshop hosts before HTML", () => {
+    expect(
+      detectStorefrontPlatform({
+        url: "https://rint-test-store.myshopify.com/products/the-complete-snowboard",
+        html: null,
+      }),
+    ).toBe("shopify");
+    expect(
+      detectStorefrontPlatform({
+        url: "https://loja.vtexcommercestable.com.br/prancha/p",
+        html: null,
+      }),
+    ).toBe("vtex");
+    expect(
+      detectStorefrontPlatform({
+        url: "https://loja.nuvemshop.com.br/produtos/jaqueta",
+        html: null,
+      }),
+    ).toBe("nuvemshop");
+  });
+
+  it("reads JSON-LD and HTML fingerprints on a custom domain", () => {
+    expect(
+      detectStorefrontPlatform({
+        url: "https://marca.com.br/products/prancha",
+        html: `<script type="application/ld+json">{"@type":"Product","image":"https://cdn.shopify.com/s/files/1.jpg"}</script>`,
+      }),
+    ).toBe("shopify");
+    expect(
+      detectStorefrontPlatform({
+        url: "https://marca.com.br/prancha/p",
+        html: `<meta name="generator" content="VTEX IO"><img src="https://marca.vteximg.com.br/arquivos/ids/1.jpg">`,
+      }),
+    ).toBe("vtex");
+    expect(
+      detectStorefrontPlatform({
+        url: "https://marca.com.br/produtos/jaqueta",
+        html: `<script type="application/ld+json">{"@type":"Product","name":"Jaqueta","image":"https://cdn.nuvemshop.com.br/stores/001/jacket.jpg"}</script>`,
+      }),
+    ).toBe("nuvemshop");
+  });
+
+  it("does not invent a platform from a generic PDP", () => {
+    expect(
+      detectStorefrontPlatform({
+        url: "https://marca.com.br/products/prancha",
+        html: `<script type="application/ld+json">{"@type":"Product","name":"Prancha"}</script>`,
+      }),
+    ).toBeNull();
   });
 });

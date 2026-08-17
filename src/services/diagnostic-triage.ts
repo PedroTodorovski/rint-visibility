@@ -91,6 +91,14 @@ function hasMediaWaste(signals: TriageInput["mediaSignals"]): boolean {
   return cac > 0 && ticket > 0 && cac > ticket;
 }
 
+export function publicStorefrontUnreadable(snapshot: ShopifyProductSnapshot): boolean {
+  const access = snapshot.meta.storefrontAccess;
+  if (access === "password" || access === "blocked") return true;
+  if (access === "open" || access === "unverified") return false;
+  // Legacy Shopify Admin snapshot with no public GET recorded.
+  return snapshot.meta.source === "shopify_api" && snapshot.meta.hasJsonLd == null;
+}
+
 export function computeTriage(input: TriageInput): TriageOutcome {
   const skuById = new Map(input.skus.map((sku) => [sku.id, sku.shopify]));
   const checks: Array<Record<string, unknown>> = [];
@@ -135,7 +143,11 @@ export function computeTriage(input: TriageInput): TriageOutcome {
   else if (partialMismatch) coherenceLevel = "parcialmente_coerente";
 
   let track: DiagnosticTrack;
-  if (coherenceLevel === "incoerente") {
+  const storefrontClosed = input.skus.some((sku) => publicStorefrontUnreadable(sku.shopify));
+  if (storefrontClosed) {
+    // Admin catalog is not the vitrine — AI cannot index a password wall.
+    track = "track_pdp";
+  } else if (coherenceLevel === "incoerente") {
     track = "track_llm";
   } else if (coherenceLevel === "parcialmente_coerente") {
     track = "track_pdp";
@@ -155,6 +167,7 @@ export function computeTriage(input: TriageInput): TriageOutcome {
       client_cited: clientCited,
       competitor_cited: competitorCited,
       media_waste_detected: hasMediaWaste(input.mediaSignals),
+      storefront_not_public: storefrontClosed,
       comparisons: checks,
     },
   };
