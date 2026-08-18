@@ -1,9 +1,28 @@
-import type { AnalysisWindow, Ga4AiReferralPort, Ga4AiReferralRevenue } from "./types.js";
+import type {
+  AnalysisWindow,
+  Ga4AiLanding,
+  Ga4AiReferralPort,
+  Ga4AiReferralRevenue,
+} from "./types.js";
+
+/** Exact hosts the Nuture probe proved, plus aliases the three IAs actually emit. */
+export const GA4_AI_REFERRAL_SOURCE_REGEX =
+  "^(chatgpt\\.com|chat\\.openai\\.com|gemini\\.google\\.com|bard\\.google\\.com|www\\.perplexity\\.ai|perplexity\\.ai|perplexity)$";
+
+/** Brand tokens so `ai-assistant` medium does not pull Claude / Copilot / Grok. */
+export const GA4_AI_REFERRAL_BRAND_REGEX = "chatgpt|openai|gemini|bard|perplexity";
+
+/** Pontual top-K — not a pageview warehouse. */
+export const GA4_AI_LANDING_LIMIT = 8;
 
 export const GA4_AI_REFERRAL_SOURCES = [
   "chatgpt.com",
+  "chat.openai.com",
   "gemini.google.com",
+  "bard.google.com",
   "perplexity.ai",
+  "www.perplexity.ai",
+  "perplexity",
 ] as const;
 
 export type Ga4PortCredentials = {
@@ -22,6 +41,51 @@ type RunReportResponse = {
   error?: { message?: string };
 };
 
+export function ga4AiReferralDimensionFilter(): Record<string, unknown> {
+  return {
+    orGroup: {
+      expressions: [
+        {
+          filter: {
+            fieldName: "sessionSource",
+            stringFilter: {
+              matchType: "FULL_REGEXP",
+              value: GA4_AI_REFERRAL_SOURCE_REGEX,
+              caseSensitive: false,
+            },
+          },
+        },
+        {
+          andGroup: {
+            expressions: [
+              {
+                filter: {
+                  fieldName: "sessionMedium",
+                  stringFilter: {
+                    matchType: "EXACT",
+                    value: "ai-assistant",
+                    caseSensitive: false,
+                  },
+                },
+              },
+              {
+                filter: {
+                  fieldName: "sessionSource",
+                  stringFilter: {
+                    matchType: "PARTIAL_REGEXP",
+                    value: GA4_AI_REFERRAL_BRAND_REGEX,
+                    caseSensitive: false,
+                  },
+                },
+              },
+            ],
+          },
+        },
+      ],
+    },
+  };
+}
+
 function metaFor(propertyId: string): Ga4AiReferralRevenue["meta"] {
   return {
     port: "ga4",
@@ -32,6 +96,42 @@ function metaFor(propertyId: string): Ga4AiReferralRevenue["meta"] {
 
 function normalizePropertyId(propertyId: string): string {
   return propertyId.replace(/^properties\//, "").trim();
+}
+
+export function parseGa4LandingRows(payload: RunReportResponse): Ga4AiLanding[] {
+  const landings: Ga4AiLanding[] = [];
+  for (const row of payload.rows ?? []) {
+    const path = row.dimensionValues?.[0]?.value?.trim() ?? "";
+    const sessions = Number(row.metricValues?.[0]?.value ?? 0) || 0;
+    if (!path || sessions <= 0) continue;
+    landings.push({ path, sessions });
+    if (landings.length >= GA4_AI_LANDING_LIMIT) break;
+  }
+  return landings;
+}
+
+async function runGa4Report(
+  fetchImpl: typeof fetch,
+  propertyId: string,
+  accessToken: string,
+  body: Record<string, unknown>,
+): Promise<RunReportResponse> {
+  const response = await fetchImpl(
+    `https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:runReport`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    },
+  );
+  const payload = (await response.json()) as RunReportResponse;
+  if (!response.ok) {
+    throw new Error(payload.error?.message ?? "ga4_run_report_failed");
+  }
+  return payload;
 }
 
 async function refreshAccessToken(
@@ -72,48 +172,51 @@ export function createGa4AiReferralPort(
   return {
     async getAiReferralRevenue(window: AnalysisWindow): Promise<Ga4AiReferralRevenue> {
       const accessToken = await refreshAccessToken(credentials, fetchImpl);
+      const dateRanges = [{ startDate: window.start, endDate: window.end }];
+      const dimensionFilter = ga4AiReferralDimensionFilter();
 
-      const response = await fetchImpl(
-        `https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:runReport`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            dateRanges: [{ startDate: window.start, endDate: window.end }],
-            dimensions: [{ name: "sessionSource" }],
-            metrics: [{ name: "purchaseRevenue" }],
-            dimensionFilter: {
-              filter: {
-                fieldName: "sessionSource",
-                inListFilter: { values: [...GA4_AI_REFERRAL_SOURCES] },
-              },
-            },
-          }),
-        },
-      );
-
-      const payload = (await response.json()) as RunReportResponse;
-      if (!response.ok) {
-        throw new Error(payload.error?.message ?? "ga4_run_report_failed");
-      }
+      const payload = await runGa4Report(fetchImpl, propertyId, accessToken, {
+        dateRanges,
+        dimensions: [{ name: "sessionSource" }, { name: "sessionMedium" }],
+        metrics: [{ name: "purchaseRevenue" }, { name: "sessions" }],
+        dimensionFilter,
+      });
 
       const bySource: Ga4AiReferralRevenue["bySource"] = [];
       let totalRevenue = 0;
+      let totalSessions = 0;
 
       for (const row of payload.rows ?? []) {
-        const source = row.dimensionValues?.[0]?.value ?? "";
+        const source = row.dimensionValues?.[0]?.value?.trim() ?? "";
+        const medium = row.dimensionValues?.[1]?.value?.trim() || null;
         const revenue = Number(row.metricValues?.[0]?.value ?? 0) || 0;
-        if (!source || revenue <= 0) continue;
-        bySource.push({ source, revenue });
+        const sessions = Number(row.metricValues?.[1]?.value ?? 0) || 0;
+        if (!source || (revenue <= 0 && sessions <= 0)) continue;
+        bySource.push({ source, medium, revenue, sessions });
         totalRevenue += revenue;
+        totalSessions += sessions;
+      }
+
+      let landings: Ga4AiLanding[] = [];
+      try {
+        const landingPayload = await runGa4Report(fetchImpl, propertyId, accessToken, {
+          dateRanges,
+          dimensions: [{ name: "landingPage" }],
+          metrics: [{ name: "sessions" }],
+          dimensionFilter,
+          orderBys: [{ metric: { metricName: "sessions" }, desc: true }],
+          limit: GA4_AI_LANDING_LIMIT,
+        });
+        landings = parseGa4LandingRows(landingPayload);
+      } catch {
+        landings = [];
       }
 
       return {
         totalRevenue,
+        totalSessions,
         bySource,
+        ...(landings.length > 0 ? { landings } : {}),
         meta: metaFor(propertyId),
       };
     },

@@ -1,5 +1,9 @@
 export type RevenueGapAssumptions = {
   receitaAiMedida: number;
+  /** Measured GA4 sessions on AI referral sources. Not used in Conta 1. */
+  sessoesAi?: number;
+  /** Top-K AI-referral landing paths. Supporting evidence — does not drive Conta 1 or first_action. */
+  sessoesAiLandings?: Array<{ path: string; sessions: number }>;
   citationClient: number;
   citationTotal: number;
   citationCompetitor: number;

@@ -1,7 +1,18 @@
 import type { AppConfig } from "../config.js";
-import { scoreClientCitation } from "../lib/citation-gold.js";
+import {
+  brandMentionedWithoutBuyLink,
+  planClientSiteFollowUp,
+  scoreClientCitation,
+} from "../lib/citation-gold.js";
+import {
+  crownCompetitorSku,
+  hostFromUrl,
+  mergeFollowUpCitedObjects,
+  planCitedOfferFollowUp,
+} from "../lib/cited-offer.js";
 import { AppError } from "../lib/errors.js";
-import { resolveGroundingUrls } from "../lib/grounding-resolve.js";
+import { bindGroundingSupports } from "../lib/gemini-grounding.js";
+import { resolveDiagnosticGrounding } from "../lib/grounding-resolve.js";
 import {
   citedObjectsFromStructured,
   hydrateGeminiStructured,
@@ -21,6 +32,7 @@ import {
   groupQueriesByProduct,
   validateAndSnapshotSku,
 } from "./diagnostic-input.js";
+import { providersFromIntegrationConfig } from "./diagnostic-job-summary.js";
 import { buildCitationFinancialRisks, buildDiagnosticOutput } from "./diagnostic-output.js";
 import { computeTriage } from "./diagnostic-triage.js";
 import {
@@ -30,6 +42,10 @@ import {
   type QueryExecutionRecord,
   runConfigForPlan,
 } from "./diagnostic-types.js";
+import {
+  renderFounderActionWithGuardrails,
+  type TrackLlmContentBriefForCopy,
+} from "./founder-action-copy.js";
 
 export type DominantDiagnosticJobPayload = {
   jobId: string;
@@ -59,6 +75,7 @@ function planSnapshot(
     max_queries_per_sku: config.maxQueriesPerSku,
     executions_per_query: config.executionsPerQuery,
     gemini_temperature: config.geminiTemperature,
+    providers: providersFromIntegrationConfig(integrationConfig),
     integrations: {
       shopify: Boolean(integrationConfig?.shopify?.shopDomain),
       meta: Boolean(integrationConfig?.meta?.adAccountId),
@@ -156,7 +173,7 @@ async function executeQuery(input: {
     const validation = competitorUrl ? await filterAliveUrls([competitorUrl]) : new Map();
     const competitorAlive = competitorUrl ? validation.get(competitorUrl)?.alive === true : false;
     const deadUrls = competitorUrl && !competitorAlive ? [competitorUrl] : [];
-    const resolved = await resolveGroundingUrls(result.groundingUrls);
+    const resolved = await resolveDiagnosticGrounding(result);
     const citation = scoreClientCitation({
       text: result.rawText,
       identity: {
@@ -181,19 +198,83 @@ async function executeQuery(input: {
       model: result.model,
       mocked: result.mocked,
       citation,
+      grounding_supports: bindGroundingSupports(result.groundingSupports, resolved),
     });
   }
 
+  const first = executions[0];
+  if (
+    first &&
+    input.llm.gemini.diagnoseQuery &&
+    brandMentionedWithoutBuyLink({
+      text: first.raw_text,
+      storeName: input.store.name,
+      domain: input.store.domain,
+      productUrl: input.sku.url,
+      resolved: first.citation.resolved,
+    })
+  ) {
+    const plan = planClientSiteFollowUp(input.store.name, input.sku.shopify_data.name);
+    console.info(
+      JSON.stringify({
+        msg: "client_site_follow_up",
+        query: input.prompt.prompt_text,
+        store: input.store.name,
+      }),
+    );
+    const follow = await input.llm.gemini.diagnoseQuery({
+      query: plan.query,
+      storeName: input.store.name,
+      domain: input.store.domain,
+      productUrl: input.sku.url,
+      productName: input.sku.shopify_data.name,
+      productAttributes: input.sku.shopify_data.attributes,
+      temperature: input.config.geminiTemperature,
+    });
+    if (!follow.mocked && follow.rawText.trim()) {
+      const followResolved = await resolveDiagnosticGrounding(follow);
+      const followCitation = scoreClientCitation({
+        text: follow.rawText,
+        identity: {
+          storeName: input.store.name,
+          domain: input.store.domain,
+          productUrl: input.sku.url,
+          productName: input.sku.shopify_data.name,
+        },
+        resolved: followResolved,
+        llmClaimedCited: follow.structured.cliente_foi_citado,
+      });
+      executions.push({
+        raw_text: follow.rawText,
+        structured: {
+          ...follow.structured,
+          cliente_foi_citado: followCitation.cited,
+        },
+        grounding_urls: follow.groundingUrls,
+        dead_urls: [],
+        model: follow.model,
+        mocked: follow.mocked,
+        citation: followCitation,
+        grounding_supports: bindGroundingSupports(follow.groundingSupports, followResolved),
+        follow_up: true,
+        follow_up_query: plan.query,
+      });
+    }
+  }
+
+  const primaryExecutions = executions.filter((execution) => !execution.follow_up);
   const citedCount = executions.filter(
     (execution) => execution.structured.cliente_foi_citado,
   ).length;
-  const clientCited = citedCount >= Math.ceil(input.config.executionsPerQuery / 2);
+  const clientCited =
+    citedCount >= Math.ceil(input.config.executionsPerQuery / 2) ||
+    executions.some((execution) => execution.follow_up && execution.structured.cliente_foi_citado);
   const competitorName = majority(
-    executions,
+    primaryExecutions,
     (execution) => execution.structured.concorrente_citado_nome,
   );
   const competitorUrl = majority(
-    executions,
+    primaryExecutions,
     (execution) => execution.structured.concorrente_citado_url,
   );
   const attrs = [
@@ -204,15 +285,18 @@ async function executeQuery(input: {
   const citedPrice =
     executions.find((execution) => execution.structured.preco_citado)?.structured.preco_citado ??
     null;
-  const brand = majority(executions, (execution) => execution.structured.nome_marca_citada);
-  const product = majority(executions, (execution) => execution.structured.produto_mencionado);
+  const brand = majority(primaryExecutions, (execution) => execution.structured.nome_marca_citada);
+  const product = majority(
+    primaryExecutions,
+    (execution) => execution.structured.produto_mencionado,
+  );
 
   return {
     job_id: input.sku.job_id,
     sku_id: input.sku.id,
     prompt_id: input.prompt.id,
     query_text: input.prompt.prompt_text,
-    gemini_raw: executions.map((execution) => execution.raw_text).join("\n\n---\n\n"),
+    gemini_raw: primaryExecutions.map((execution) => execution.raw_text).join("\n\n---\n\n"),
     gemini_structured: hydrateGeminiStructured({
       cliente_foi_citado: clientCited,
       concorrente_citado_nome: competitorName,
@@ -237,6 +321,89 @@ async function executeQuery(input: {
         : null,
     executions: executions as unknown as Record<string, unknown>[],
   };
+}
+
+type QueryDraft = Omit<DiagnosticQueryRow, "id" | "created_at">;
+
+async function completeCitedOffers(input: {
+  store: StoreRow;
+  skuRows: Array<{ row: DiagnosticSkuRow }>;
+  drafts: QueryDraft[];
+  llm: LlmClients;
+  config: DiagnosticRunConfig;
+}): Promise<{ drafts: QueryDraft[]; followUps: number }> {
+  if (!input.llm.gemini.diagnoseQuery) return { drafts: input.drafts, followUps: 0 };
+  let followUps = 0;
+  const bySku = new Map<string, QueryDraft[]>();
+  for (const draft of input.drafts) {
+    const list = bySku.get(draft.sku_id) ?? [];
+    list.push(draft);
+    bySku.set(draft.sku_id, list);
+  }
+
+  for (const sku of input.skuRows) {
+    const skuDrafts = bySku.get(sku.row.id);
+    if (!skuDrafts?.length) continue;
+    const objectsByQuery = skuDrafts.map((draft) =>
+      citedObjectsFromStructured(draft.gemini_structured),
+    );
+    const crown = crownCompetitorSku({
+      client: {
+        name: sku.row.shopify_data.name,
+        brand: sku.row.shopify_data.brand,
+        url: sku.row.url,
+      },
+      objectsByQuery,
+    });
+    const plan = planCitedOfferFollowUp(crown);
+    if (!plan) continue;
+
+    const result: LlmStructuredDiagnosticResult = await input.llm.gemini.diagnoseQuery({
+      query: plan.query,
+      storeName: input.store.name,
+      domain: input.store.domain,
+      productUrl: sku.row.url,
+      productName: sku.row.shopify_data.name,
+      productAttributes: sku.row.shopify_data.attributes,
+      temperature: input.config.geminiTemperature,
+    });
+    const last = skuDrafts[skuDrafts.length - 1];
+    if (!last) continue;
+    const existing = citedObjectsFromStructured(last.gemini_structured);
+    const incoming = citedObjectsFromStructured(result.structured);
+    last.gemini_structured = hydrateGeminiStructured({
+      ...last.gemini_structured,
+      objetos_citados: mergeFollowUpCitedObjects(existing, incoming),
+    });
+    const resolved = await resolveDiagnosticGrounding(result);
+    const citation = scoreClientCitation({
+      text: result.rawText,
+      identity: {
+        storeName: input.store.name,
+        domain: input.store.domain,
+        productUrl: sku.row.url,
+        productName: sku.row.shopify_data.name,
+      },
+      resolved,
+      llmClaimedCited: result.structured.cliente_foi_citado,
+    });
+    const executions = [...((last.executions ?? []) as unknown as QueryExecutionRecord[])];
+    executions.push({
+      raw_text: result.rawText,
+      structured: result.structured,
+      grounding_urls: result.groundingUrls,
+      dead_urls: [],
+      model: result.model,
+      mocked: result.mocked,
+      citation,
+      grounding_supports: bindGroundingSupports(result.groundingSupports, resolved),
+      follow_up: true,
+    });
+    last.executions = executions as unknown as Record<string, unknown>[];
+    followUps += 1;
+  }
+
+  return { drafts: input.drafts, followUps };
 }
 
 async function sendWebhook(input: {
@@ -308,12 +475,31 @@ export async function runDominantDiagnostic(
       const snapshot = await validateAndSnapshotSku(product, ports.shopifyProduct, {
         shopifyConnected: gold,
       });
+      const searchConsole = await ports.searchConsole.getOwnedSurfaces({
+        storefrontHost: hostFromUrl(product.url),
+      });
+      const snapshotWithSurfaces = {
+        ...snapshot,
+        meta: {
+          ...snapshot.meta,
+          ownedSurfaces: {
+            storefrontHosts: [hostFromUrl(product.url)].filter((host): host is string =>
+              Boolean(host),
+            ),
+            ownedContentHosts: searchConsole.ownedContentHosts,
+            ownedContentPaths: searchConsole.ownedContentPaths,
+            searchConsoleProperties: searchConsole.properties,
+            ownedContentCandidates: searchConsole.ownedContentCandidates,
+            meta: searchConsole.meta,
+          },
+        },
+      };
       const row = await deps.repos.diagnosticSkus.create({
         job_id: payload.jobId,
         product_id: product.id,
         url: product.url,
         external_ref: product.external_ref,
-        shopify_data: snapshot,
+        shopify_data: snapshotWithSurfaces,
       });
       skuRows.push({ row, product, prompts: promptsByProduct.get(product.id) ?? [] });
     }
@@ -333,8 +519,15 @@ export async function runDominantDiagnostic(
           config: runConfig,
         }),
     );
+    const completed = await completeCitedOffers({
+      store,
+      skuRows,
+      drafts: queryDrafts,
+      llm: deps.llm,
+      config: runConfig,
+    });
     const queryRows: DiagnosticQueryRow[] = [];
-    for (const draft of queryDrafts) {
+    for (const draft of completed.drafts) {
       queryRows.push(await deps.repos.diagnosticQueries.create(draft));
     }
 
@@ -378,9 +571,10 @@ export async function runDominantDiagnostic(
         ),
       ]);
 
-    const conversion = ports.ga4.getSkuConversionMetrics
+    const getSkuConversionMetrics = ports.ga4.getSkuConversionMetrics;
+    const conversion = getSkuConversionMetrics
       ? await cachePort("ga4", `conversion:${ref}:${cacheKeyBase}`, () =>
-          ports.ga4.getSkuConversionMetrics!(ref, window),
+          getSkuConversionMetrics(ref, window),
         )
       : null;
 
@@ -441,6 +635,34 @@ export async function runDominantDiagnostic(
         finance,
       });
 
+      if (triage.track === "track_llm") {
+        const contentBrief = output.diagnostic.next_steps.content_brief as
+          | TrackLlmContentBriefForCopy
+          | undefined;
+        const deterministicAction =
+          typeof output.diagnostic.next_steps.first_action === "string"
+            ? output.diagnostic.next_steps.first_action
+            : "";
+        if (contentBrief && deterministicAction) {
+          const copy = await renderFounderActionWithGuardrails({
+            deterministicAction,
+            brief: contentBrief,
+            llm: deps.llm.gemini,
+          });
+          output.diagnostic.next_steps = {
+            ...output.diagnostic.next_steps,
+            first_action: copy.first_action,
+            content_brief: {
+              ...contentBrief,
+              copy_source: copy.copy_source,
+              copy_model: copy.copy_model,
+              copy_fallback_reason: copy.copy_fallback_reason,
+              deterministic_first_action: deterministicAction,
+            },
+          };
+        }
+      }
+
       await deps.repos.financialRisk.createMany(output.risks);
       await deps.repos.diagnostics.create(output.diagnostic);
       assignedTrack = triage.track;
@@ -459,7 +681,7 @@ export async function runDominantDiagnostic(
       job_id: payload.jobId,
       tokens_consumed: 0,
       apis_called: {
-        gemini_calls: queryRows.length * runConfig.executionsPerQuery * 2,
+        gemini_calls: queryRows.length * runConfig.executionsPerQuery * 2 + completed.followUps * 2,
         shopify_reads: products.length + 1,
         ga4_reads: 2,
         meta_reads: 1,

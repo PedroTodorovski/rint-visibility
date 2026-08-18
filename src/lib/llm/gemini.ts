@@ -1,5 +1,5 @@
 import type { AppConfig } from "../../config.js";
-import { extractGroundingMetadata } from "../gemini-grounding.js";
+import { extractGroundingMetadata, supportRefsFromSpans } from "../gemini-grounding.js";
 import { buildSingleProbeMessage } from "./batch-probe.js";
 import {
   emptyCitedObject,
@@ -11,6 +11,20 @@ import {
 import type { LlmClient, LlmProbeResult, LlmStructuredDiagnosticResult } from "./types.js";
 
 const DEFAULT_MODEL = "gemini-2.0-flash";
+const DEFAULT_COPY_MODEL = "gemini-2.5-flash";
+
+function mergeGroundingChunks(
+  first: Array<{ uri: string; title?: string }>,
+  second: Array<{ uri: string; title?: string }>,
+): Array<{ uri: string; title?: string }> {
+  const seen = new Map<string, { uri: string; title?: string }>();
+  for (const chunk of [...first, ...second]) {
+    const uri = chunk.uri.trim();
+    if (!uri || seen.has(uri)) continue;
+    seen.set(uri, { uri, title: chunk.title });
+  }
+  return [...seen.values()];
+}
 
 export type GeminiProbeExtras = {
   groundingUrls: string[];
@@ -21,16 +35,56 @@ type GeminiGenerateResponse = {
     content?: { parts?: Array<{ text?: string }> };
     groundingMetadata?: {
       groundingChunks?: Array<{ web?: { uri?: string; title?: string } }>;
+      groundingSupports?: Array<{
+        segment?: { startIndex?: number; endIndex?: number; text?: string };
+        groundingChunkIndices?: number[];
+      }>;
     };
   }>;
 };
+
+async function callGeminiPlainText(
+  apiKey: string,
+  model: string,
+  userContent: string,
+  temperature = 0.2,
+  maxOutputTokens = 384,
+): Promise<string | null> {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: userContent }] }],
+      generationConfig: {
+        temperature,
+        maxOutputTokens,
+        thinkingConfig: { thinkingBudget: 0 },
+      },
+    }),
+    signal: AbortSignal.timeout(20_000),
+  });
+
+  if (!res.ok) return null;
+
+  const data = (await res.json()) as GeminiGenerateResponse;
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? "";
+  return text || null;
+}
 
 async function callGeminiWithGrounding(
   apiKey: string,
   model: string,
   userContent: string,
   temperature = 0.7,
-): Promise<{ text: string; model: string; groundingUrls: string[] } | null> {
+): Promise<{
+  text: string;
+  model: string;
+  groundingUrls: string[];
+  groundingChunks: Array<{ uri: string; title?: string }>;
+  groundingSupports: ReturnType<typeof extractGroundingMetadata>["supports"];
+} | null> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
 
   const res = await fetch(url, {
@@ -51,9 +105,19 @@ async function callGeminiWithGrounding(
   if (!text) return null;
 
   const grounding = extractGroundingMetadata(data);
-  const groundingUrls = grounding.chunks.map((c) => c.uri);
+  const groundingChunks = grounding.chunks.map((chunk) => ({
+    uri: chunk.uri,
+    title: chunk.title?.replace(/\s+/g, " ").trim() || undefined,
+  }));
+  const groundingUrls = groundingChunks.map((chunk) => chunk.uri);
 
-  return { text, model, groundingUrls };
+  return {
+    text,
+    model,
+    groundingUrls,
+    groundingChunks,
+    groundingSupports: grounding.supports,
+  };
 }
 
 function mockStructuredFromShopperAnswer(): LlmStructuredDiagnosticResult["structured"] {
@@ -113,9 +177,60 @@ Rules:
 - Set cliente_foi_citado true only if the quoted answer recommends the shopper buy from that store or product. A mention that the store or product was not found is false.`;
 }
 
+function buildFounderActionCopyPrompt(input: {
+  deterministicAction: string;
+  contentBrief: Record<string, unknown>;
+  fallbackCopy: string;
+}): string {
+  const brief = input.contentBrief;
+  const useAttrs = Array.isArray(brief.use_attrs) ? brief.use_attrs.join(" | ") : "";
+  const skipAttrs = Array.isArray(brief.skip_attrs) ? brief.skip_attrs.join(" | ") : "";
+  const targetUrl = typeof brief.target_url === "string" ? brief.target_url : "";
+  const skuName = typeof brief.sku_name === "string" ? brief.sku_name : "";
+  const theme = typeof brief.theme === "string" ? brief.theme : "";
+  const note =
+    brief.grounding_note === "review_not_listing"
+      ? "A IA buscou essa resposta em review, blog ou loja de outra marca."
+      : "";
+  return `Você é a camada final de redação do Rint para um fundador de e-commerce leigo.
+
+Tarefa: escreva uma orientação em português do Brasil, clara, humana e direta.
+
+REGRAS INEGOCIÁVEIS:
+- Não adicione nenhum fato.
+- Não crie números, atributos, URL, promessa ou diagnóstico novo.
+- Se existir target_url, use exatamente o placeholder [URL_ALVO]. Não escreva outra URL.
+- Inclua literalmente todos os itens de use_attrs.
+- Se citar algum item de skip_attrs, cite apenas como algo que NÃO deve ser afirmado.
+- Não use markdown, bullets, título ou JSON.
+- Retorne apenas um parágrafo curto, com 2 a 5 frases.
+- A resposta final precisa ter pelo menos 80 caracteres.
+
+CHECKLIST OBRIGATÓRIO ANTES DE RESPONDER:
+- placeholder [URL_ALVO] presente, se houver target_url.
+- sku_name presente.
+- use_attrs presentes literalmente.
+- skip_attrs citados apenas com negação.
+
+Dados fechados:
+- target_url: ${targetUrl || "nenhuma"}
+- sku_name: ${skuName}
+- theme: ${theme}
+- use_attrs: ${useAttrs || "nenhum"}
+- skip_attrs: ${skipAttrs || "nenhum"}
+- contexto: ${note || "sem contexto adicional"}
+
+Frase técnica atual:
+${input.deterministicAction}
+
+Estilo desejado, mas você pode melhorar a fluidez:
+${input.fallbackCopy}`;
+}
+
 export function createGeminiClient(config: AppConfig): LlmClient {
   const apiKey = config.geminiApiKey;
   const model = config.geminiModel ?? DEFAULT_MODEL;
+  const copyModel = config.geminiCopyModel ?? DEFAULT_COPY_MODEL;
 
   const client: LlmClient = {
     async probe(prompt: string): Promise<LlmProbeResult> {
@@ -176,6 +291,48 @@ export function createGeminiClient(config: AppConfig): LlmClient {
       };
     },
 
+    async renderFounderAction(input) {
+      if (!apiKey) {
+        return { text: input.fallbackCopy, model: "mock", mocked: true };
+      }
+
+      try {
+        const targetUrl =
+          typeof input.contentBrief.target_url === "string"
+            ? input.contentBrief.target_url.trim()
+            : "";
+        const promptInput = targetUrl
+          ? {
+              ...input,
+              deterministicAction: input.deterministicAction.replaceAll(targetUrl, "[URL_ALVO]"),
+              fallbackCopy: input.fallbackCopy.replaceAll(targetUrl, "[URL_ALVO]"),
+              contentBrief: {
+                ...input.contentBrief,
+                target_url: "[URL_ALVO]",
+              },
+            }
+          : input;
+        const text = await callGeminiPlainText(
+          apiKey,
+          copyModel,
+          buildFounderActionCopyPrompt(promptInput),
+          0.2,
+          1024,
+        );
+        const safeText =
+          targetUrl && text
+            ? text.replaceAll("[URL_ALVO]", targetUrl).replaceAll("URL_ALVO", targetUrl)
+            : text;
+        return {
+          text: safeText ?? input.fallbackCopy,
+          model: safeText ? copyModel : "mock",
+          mocked: !safeText,
+        };
+      } catch {
+        return { text: input.fallbackCopy, model: "mock", mocked: true };
+      }
+    },
+
     async diagnoseQuery(input): Promise<LlmStructuredDiagnosticResult> {
       if (!apiKey) {
         return {
@@ -186,6 +343,8 @@ export function createGeminiClient(config: AppConfig): LlmClient {
           mocked: true,
           usedWebSearch: false,
           groundingUrls: [],
+          groundingChunks: [],
+          groundingSupports: [],
           calls: [
             { type: "text", usedWebSearch: false, model: "mock" },
             { type: "structure", usedWebSearch: false, model: "mock" },
@@ -203,6 +362,8 @@ export function createGeminiClient(config: AppConfig): LlmClient {
           mocked: true,
           usedWebSearch: false,
           groundingUrls: [],
+          groundingChunks: [],
+          groundingSupports: [],
           calls: [
             { type: "text", usedWebSearch: false, model: "mock" },
             { type: "structure", usedWebSearch: false, model: "mock" },
@@ -218,6 +379,10 @@ export function createGeminiClient(config: AppConfig): LlmClient {
         input.temperature,
       );
       const structured = second?.text ? parseGeminiStructuredOutput(second.text) : null;
+      const groundingChunks = mergeGroundingChunks(
+        first.groundingChunks,
+        second?.groundingChunks ?? [],
+      );
 
       return {
         rawText: first.text,
@@ -225,7 +390,9 @@ export function createGeminiClient(config: AppConfig): LlmClient {
         model,
         mocked: false,
         usedWebSearch: first.groundingUrls.length > 0 || (second?.groundingUrls.length ?? 0) > 0,
-        groundingUrls: [...new Set([...first.groundingUrls, ...(second?.groundingUrls ?? [])])],
+        groundingUrls: groundingChunks.map((chunk) => chunk.uri),
+        groundingChunks,
+        groundingSupports: supportRefsFromSpans(first.groundingSupports, first.groundingChunks),
         calls: [
           { type: "text", usedWebSearch: first.groundingUrls.length > 0, model: first.model },
           {

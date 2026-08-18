@@ -8,7 +8,7 @@
 
 **Gemini-only** com **Grounding with Google Search**.
 
-- Usar `groundingChunks` e `groundingSupports` da resposta
+- Usar `groundingChunks` e `groundingSupports` da resposta. Os índices de support pertencem **só** ao primeiro passe (texto do comprador) — não misturar com o JSON. A Prova grifa o `segment.text` e mostra o chip da fonte.
 - Não depender de multi-LLM legado no MVP 2026
 
 ---
@@ -18,9 +18,10 @@
 1. Enviar cluster de prompts de comprador (5–10 por store)
 2. Receber resposta **em texto** com grounding metadata
 3. Converter para JSON estruturado **pós-resposta** (não pedir JSON direto ao modelo). O segundo passe extrai `objetos_citados[]` — só fatos da resposta + grounding.
-4. Extrair citações por domínio/URL
-5. Validar URL antes de contar citação
-6. Calcular `citação_cliente` / `citação_concorrente` por cluster de prompts
+4. Extrair citações por domínio/URL. Persistir `web.title` no resolved — no Search grounding isso costuma ser o **domínio**, não o H1.
+5. Validar URL antes de contar citação. Storefront do cliente (`identity.domain`) ≠ blog/ajuda no mesmo registrável.
+6. Se a resposta nomeia a marca e o storefront não está no texto nem no grounding, **um** follow-up de compra na mesma query — [PROOF-CLIENT-SITE.md](../../rint-app/docs/PROOF-CLIENT-SITE.md).
+7. Calcular `citação_cliente` / `citação_concorrente` por cluster de prompts
 
 ---
 
@@ -82,4 +83,4 @@ Manter tabela de `why_code` para accordion de evidência (foundation trust-layer
 
 Sem replicar respostas completas do LLM além do necessário para evidência e auditoria.
 
-**Não** tratar o probe como thread de chat. Continuar a conversa no Rint (Interactions API / history) é horizonte parked — [PROOF-CONTINUE-CONVERSATION.md](../../rint-app/docs/PROOF-CONTINUE-CONVERSATION.md). O snapshot do run não se reescreve com um 2º turno do fundador. Um 3º passo do runner para fechar `null`s também não é MVP.
+**Não** tratar o probe como thread de chat. Continuar a conversa no Rint (Interactions API / history) é horizonte parked — [PROOF-CONTINUE-CONVERSATION.md](../../rint-app/docs/PROOF-CONTINUE-CONVERSATION.md). O snapshot do run não se reescreve com um 2º turno do **fundador**. O follow-up do **site do cliente** (1 tiro do motor, mesma query) é MVP — [PROOF-CLIENT-SITE.md](../../rint-app/docs/PROOF-CLIENT-SITE.md).

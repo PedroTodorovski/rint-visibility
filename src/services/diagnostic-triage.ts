@@ -1,3 +1,11 @@
+/**
+ * Dominant-track routing for the diagnostic **job** snapshot.
+ * Map (engine vs UI vs original 3.Triage print): rint-app/docs/DIAGNOSIS-DOMINANT.md
+ *
+ * 0/N citation → track_produto (or track_midia if waste). The report may override
+ * per SKU via diagnosisTrackForSku (0/N → track_llm).
+ */
+
 import { citedObjectsFromStructured, isCitedClientObject } from "../lib/llm/gemini-structured.js";
 import type {
   GoogleAdsSkuWaste,

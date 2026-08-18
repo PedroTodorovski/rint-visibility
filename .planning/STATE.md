@@ -13,10 +13,10 @@ progress:
 ## Current Position
 
 - **Phase:** 1 — MVP 2026 (lacuna de receita)
-- **Branch:** `feat/diagnosis-cause-gold`
-- **Shipped this slice:** Bounded-concurrency Gemini queries (`DIAGNOSTIC_QUERY_CONCURRENCY`). Admin-as-gold PDP + `objetos_citados` on `gemini_structured` (no migration). Health reports `diagnostic_queue`. `GET /v1/jobs` compact summaries (`sku_names`, cited/total, `providers`) for the admin history list. **Closed URL:** `storefrontAccess` (password / blocked) + `storefrontPlatform` (shopify/vtex/nuvemshop, never invented) on the diagnostic snapshot. Password wall is PDP, not “schema absent”.
-- **In flight:** PR `feat/diagnosis-cause-gold` for merge (Pedro)
-- **Next:** Merge with rint-app gold cause. No Supabase migration in this slice.
+- **Branch:** `feat/cited-offer-crown`
+- **Shipped this slice:** Follow-up de compra só se o **storefront** falta. `objetos_citados`. `first_action` / `content_brief` em `track_llm`. GA4: `sessoesAi` + top-K `sessoesAiLandings` no snapshot (evidência; não escolhe `target_url`). Preview probe + runner dominante.
+- **In flight:** PR `feat/cited-offer-crown`. Sem migration.
+- **Next:** Merge. Port GSC real fica para slice seguinte (hoje stub / candidatas só se o config as trouxer).
 
 ## Repo boundaries
 
@@ -27,6 +27,11 @@ progress:
 
 ## Decisions Log
 
+- 2026-08-18: GA4 AI-referral persiste `sessoesAi` e top-K `sessoesAiLandings` (path + sessions) no snapshot. Não é warehouse de pageview. Não escolhe `first_action` / `target_url`. Contrato: `rint-app/docs/architecture/DATA-MINIMALISM-CONTRACT.md`.
+- 2026-08-18: Search Console preparado como port pontual `getOwnedSurfaces` (preview simulado no admin; sem OAuth real ainda). O snapshot recebe `ownedSurfaces` e o `content_brief` pode marcar `target_url_source: search_console`.
+- 2026-08-18: Superfícies próprias da marca classificadas em `owned_storefront`, `owned_content_directory`, `owned_content_subdomain`, `external_source`. Search Console `domain` cobre subdomínios; `url_prefix` não. `track_llm` cria URL editorial nova ou melhora URL própria existente. Contrato: `rint-app/docs/DIAGNOSIS-DOMINANT.md`.
+- 2026-08-18: `track_llm` `next_steps.first_action` + `content_brief` formulados das N queries + attrs próprios não usados + skip do ocupante + superfície/URL. Não cola `query_text[0]`. `src/services/llm-out-first-action.ts`. Contrato: `rint-app/docs/DIAGNOSIS-DOMINANT.md`.
+- 2026-08-17: Follow-up do site do cliente: `hostIsClientStorefront` (exact host). Log `client_site_follow_up`. SSOT admin: `rint-app/docs/PROOF-CLIENT-SITE.md`.
 - 2026-08-17: `GET /v1/jobs` devolve resumo compacto (`sku_names`, `cliente_foi_citado`, `providers` no snapshot) para a lista em rint-app. Sem secrets. Jobs antigos inferem Shopify do snapshot quando dá.
 - 2026-08-17: Queries Gemini no job dominante correm em paralelo limitado (`DIAGNOSTIC_QUERY_CONCURRENCY`, default 3). Lock BullMQ 30 min. Produção exige Redis + worker.
 - 2026-08-16: Completar `objetos_citados` com 1 follow-up do motor está parked — `rint-app/docs/CITED-OBJECT-COMPLETION.md`. Array incompleto permanece válido.

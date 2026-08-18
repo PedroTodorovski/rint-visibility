@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveGroundingUrl, resolveGroundingUrls } from "../src/lib/grounding-resolve.js";
+import {
+  resolveGroundingChunks,
+  resolveGroundingUrl,
+  resolveGroundingUrls,
+} from "../src/lib/grounding-resolve.js";
 
 describe("resolveGroundingUrls", () => {
   it("keeps a normal host without fetching", async () => {
@@ -32,5 +36,23 @@ describe("resolveGroundingUrls", () => {
       async () => new Response("", { status: 200 }),
     );
     expect(rows[0]?.host).toBeNull();
+  });
+});
+
+describe("resolveGroundingChunks", () => {
+  it("keeps the Gemini web title on the resolved row", async () => {
+    const rows = await resolveGroundingChunks(
+      [
+        {
+          uri: "https://ajuda.nuture.com.br/pt-br/article/quais-produtos",
+          title: "Quais produtos o Nuture Daily Boost substitui?",
+        },
+      ],
+      async () => {
+        throw new Error("should not fetch");
+      },
+    );
+    expect(rows[0]?.host).toBe("ajuda.nuture.com.br");
+    expect(rows[0]?.title).toBe("Quais produtos o Nuture Daily Boost substitui?");
   });
 });
