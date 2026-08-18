@@ -61,3 +61,38 @@ export async function resolveGroundingUrls(
   const unique = [...new Set(urls.map((url) => url.trim()).filter(Boolean))].slice(0, MAX_RESOLVE);
   return Promise.all(unique.map((url) => resolveGroundingUrl(url, fetchImpl)));
 }
+
+export async function resolveGroundingChunks(
+  chunks: Array<{ uri: string; title?: string }>,
+  fetchImpl: typeof fetch = fetch,
+): Promise<ResolvedGroundingUrl[]> {
+  const titleByUri = new Map<string, string>();
+  for (const chunk of chunks) {
+    const uri = chunk.uri.trim();
+    const title = chunk.title?.replace(/\s+/g, " ").trim();
+    if (!uri || !title || titleByUri.has(uri)) continue;
+    titleByUri.set(uri, title);
+  }
+  const resolved = await resolveGroundingUrls(
+    chunks.map((chunk) => chunk.uri),
+    fetchImpl,
+  );
+  return resolved.map((row) => ({
+    ...row,
+    title: titleByUri.get(row.from) ?? null,
+  }));
+}
+
+export async function resolveDiagnosticGrounding(
+  result: {
+    groundingUrls: string[];
+    groundingChunks?: Array<{ uri: string; title?: string }>;
+  },
+  fetchImpl: typeof fetch = fetch,
+): Promise<ResolvedGroundingUrl[]> {
+  const chunks =
+    result.groundingChunks && result.groundingChunks.length > 0
+      ? result.groundingChunks
+      : result.groundingUrls.map((uri) => ({ uri }));
+  return resolveGroundingChunks(chunks, fetchImpl);
+}

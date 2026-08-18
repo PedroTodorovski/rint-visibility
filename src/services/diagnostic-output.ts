@@ -1,3 +1,5 @@
+import { type ClassifiedBrandSurface, classifyBrandSurface } from "../lib/citation-gold.js";
+import { hostFromUrl } from "../lib/cited-offer.js";
 import { minCompetitorPrice } from "../lib/llm/gemini-structured.js";
 import type {
   Ga4AiReferralRevenue,
@@ -17,7 +19,13 @@ import type {
 } from "../repositories/diagnostic-tables.js";
 import { publicStorefrontUnreadable } from "./diagnostic-triage.js";
 import type { DiagnosticTrack, ShopifyProductSnapshot } from "./diagnostic-types.js";
+import { buildTrackLlmSupportLine } from "./founder-action-copy.js";
+import { formulateTrackLlmFirstAction, themeFromQuerySet } from "./llm-out-first-action.js";
 import { aggregateCitationCounts, computeRevenueGap } from "./revenue-gap-engine.js";
+import {
+  type SearchConsoleUrlMatch,
+  selectSearchConsoleUrl,
+} from "./search-console-url-matcher.js";
 
 export type DiagnosticOutputInput = {
   jobId: string;
@@ -92,18 +100,187 @@ function topCompetitorUrls(queries: DiagnosticQueryRow[]): string[] {
   ].slice(0, 5);
 }
 
+function mentionedAttrsFromQueries(queries: DiagnosticQueryRow[]): string[] {
+  return [
+    ...new Set(
+      queries.flatMap((query) => [
+        ...query.atributos_mencionados_gemini,
+        ...query.gemini_structured.objetos_citados.flatMap((object) => object.atributos),
+      ]),
+    ),
+  ];
+}
+
 function missingMentionedAttributes(
   snapshot: ShopifyProductSnapshot,
   queries: DiagnosticQueryRow[],
 ): string[] {
-  const mentioned = new Set(
-    queries.flatMap((query) =>
-      query.atributos_mencionados_gemini.map((attr) => attr.toLowerCase()),
-    ),
-  );
+  const mentioned = new Set(mentionedAttrsFromQueries(queries).map((attr) => attr.toLowerCase()));
   return snapshot.attributes
     .filter((attribute) => !mentioned.has(attribute.toLowerCase()))
     .slice(0, 8);
+}
+
+function groundingHostsFromQueries(queries: DiagnosticQueryRow[]): string[] {
+  const hosts: string[] = [];
+  for (const query of queries) {
+    for (const execution of query.executions) {
+      const citation = execution.citation;
+      if (citation && typeof citation === "object" && "grounding_hosts" in citation) {
+        const list = (citation as { grounding_hosts?: unknown }).grounding_hosts;
+        if (Array.isArray(list)) {
+          for (const host of list) {
+            if (typeof host === "string" && host.trim()) hosts.push(host.trim().toLowerCase());
+          }
+        }
+      }
+      const urls = execution.grounding_urls;
+      if (Array.isArray(urls)) {
+        for (const url of urls) {
+          if (typeof url !== "string") continue;
+          const host = hostFromUrl(url);
+          if (host) hosts.push(host);
+        }
+      }
+    }
+  }
+  return hosts;
+}
+
+function groundingUrlsFromQueries(queries: DiagnosticQueryRow[]): string[] {
+  const urls = new Set<string>();
+  for (const query of queries) {
+    for (const execution of query.executions) {
+      const rawUrls = execution.grounding_urls;
+      if (!Array.isArray(rawUrls)) continue;
+      for (const url of rawUrls) {
+        if (typeof url === "string" && url.trim()) urls.add(url.trim());
+      }
+    }
+  }
+  return [...urls];
+}
+
+function surfaceConfigFromSnapshot(snapshot: ShopifyProductSnapshot) {
+  const pdpHost = hostFromUrl(snapshot.url);
+  const declared = snapshot.meta.ownedSurfaces;
+  return {
+    storefrontHosts: declared?.storefrontHosts?.length
+      ? declared.storefrontHosts
+      : [pdpHost].filter((host): host is string => Boolean(host)),
+    productUrls: [snapshot.url],
+    ownedContentHosts: declared?.ownedContentHosts,
+    ownedContentPaths: declared?.ownedContentPaths,
+    searchConsoleProperties: declared?.searchConsoleProperties,
+  };
+}
+
+function groundingSurfacesFromQueries(
+  snapshot: ShopifyProductSnapshot,
+  queries: DiagnosticQueryRow[],
+): ClassifiedBrandSurface[] {
+  const config = surfaceConfigFromSnapshot(snapshot);
+  return groundingUrlsFromQueries(queries).map((url) => classifyBrandSurface(url, config));
+}
+
+function searchConsoleOwnedContentCandidate(
+  snapshot: ShopifyProductSnapshot,
+  theme: string,
+  queryTexts: string[],
+): SearchConsoleUrlMatch | null {
+  const config = surfaceConfigFromSnapshot(snapshot);
+  return selectSearchConsoleUrl({
+    theme,
+    signals: queryTexts,
+    candidates: snapshot.meta.ownedSurfaces?.ownedContentCandidates ?? [],
+    surfaceConfig: config,
+  });
+}
+
+function readReviewOrRivalStore(hosts: string[], clientUrl: string): boolean {
+  const clientHost = hostFromUrl(clientUrl);
+  if (hosts.length === 0) return false;
+  if (!clientHost) return true;
+  return hosts.some((host) => {
+    const h = host.replace(/^www\./, "").toLowerCase();
+    return h !== clientHost && !h.endsWith(`.${clientHost}`);
+  });
+}
+
+function trackLlmNextSteps(
+  snapshot: ShopifyProductSnapshot,
+  queries: DiagnosticQueryRow[],
+  absentAttributes: string[],
+  seoGaps: DiagnosticOutputInput["finance"]["seoGaps"],
+) {
+  const mentioned = mentionedAttrsFromQueries(queries);
+  const skipAttrs = mentioned.filter(
+    (item) => !snapshot.attributes.some((attr) => attr.toLowerCase() === item.toLowerCase()),
+  );
+  const queryTexts = queries.map((query) => query.query_text);
+  const theme = themeFromQuerySet(queryTexts, snapshot.name, snapshot.brand);
+  const surfaces = groundingSurfacesFromQueries(snapshot, queries);
+  const groundingOwnedContent = surfaces.find(
+    (surface) =>
+      surface.kind === "owned_content_directory" || surface.kind === "owned_content_subdomain",
+  );
+  const searchConsoleCandidate = searchConsoleOwnedContentCandidate(snapshot, theme, queryTexts);
+  const ownedContent = groundingOwnedContent ?? searchConsoleCandidate?.surface;
+  const usesSearchConsoleTarget = !groundingOwnedContent && Boolean(searchConsoleCandidate);
+  const readStorefront = surfaces.some((surface) => surface.kind === "owned_storefront");
+  const readExternal = surfaces.some((surface) => surface.kind === "external_source");
+  const brief = formulateTrackLlmFirstAction({
+    skuName: snapshot.name,
+    brand: snapshot.brand,
+    queryTexts,
+    unusedOwnAttrs: absentAttributes,
+    skipAttrs,
+    readReviewOrRivalStore:
+      readExternal && !readStorefront
+        ? true
+        : readReviewOrRivalStore(groundingHostsFromQueries(queries), snapshot.url),
+    existingContentUrl: ownedContent?.href ?? null,
+    existingContentSurface:
+      ownedContent?.kind === "owned_content_directory" ||
+      ownedContent?.kind === "owned_content_subdomain"
+        ? ownedContent.kind
+        : null,
+    searchConsoleCoverage: ownedContent?.search_console_coverage ?? "unknown",
+    targetUrlSource: groundingOwnedContent
+      ? "grounding"
+      : searchConsoleCandidate
+        ? "search_console"
+        : null,
+  });
+  return {
+    owner: "parceiro de conteúdo ou autoridade",
+    first_action: brief.first_action,
+    support_line: buildTrackLlmSupportLine(brief),
+    content_brief: {
+      theme: brief.theme,
+      sku_name: brief.sku_name,
+      brand: brief.brand,
+      page_type: brief.page_type,
+      surface: brief.surface,
+      target_url: brief.target_url,
+      target_url_source: brief.target_url_source,
+      existing_content_surface: brief.existing_content_surface,
+      search_console_coverage: brief.search_console_coverage,
+      use_attrs: brief.use_attrs,
+      skip_attrs: brief.skip_attrs,
+      grounding_note: brief.grounding_note,
+      search_console_match:
+        usesSearchConsoleTarget && searchConsoleCandidate
+          ? {
+              score: searchConsoleCandidate.score,
+              confidence: searchConsoleCandidate.confidence,
+              matched_queries: searchConsoleCandidate.matched_queries,
+              metrics: searchConsoleCandidate.metrics,
+            }
+          : null,
+    },
+    seo_api_phase_2: seoGaps.length > 0 ? seoGaps : unavailable("seo_api"),
+  };
 }
 
 export function buildCitationFinancialRisks(
@@ -131,6 +308,10 @@ export function buildCitationFinancialRisks(
 
   const gap = computeRevenueGap({
     receitaAiMedida: input.finance.ga4.totalRevenue,
+    sessoesAi: input.finance.ga4.totalSessions,
+    ...(input.finance.ga4.landings?.length
+      ? { sessoesAiLandings: input.finance.ga4.landings.slice(0, 8) }
+      : {}),
     citationClient: citationCounts.citationClient,
     citationCompetitor: citationCounts.citationCompetitor,
     citationTotal: citationCounts.citationTotal,
@@ -138,6 +319,7 @@ export function buildCitationFinancialRisks(
     cacSku: input.finance.meta.cac,
     origins: {
       receitaAiMedida: input.finance.ga4.meta,
+      sessoesAi: input.finance.ga4.meta,
       ticketMedio: input.finance.shopify.meta,
       cacSku: input.finance.meta.meta,
     },
@@ -208,12 +390,12 @@ export function buildDiagnosticOutput(input: DiagnosticOutputInput): DiagnosticO
             },
             { type: "certified_partners", text: "Parceiros certificados pelo Rint para execução." },
           ],
-          next_steps: {
-            owner: "parceiro de conteúdo ou autoridade",
-            first_action: "Produzir conteúdo de autoridade com atributos específicos do SKU.",
-            seo_api_phase_2:
-              input.finance.seoGaps.length > 0 ? input.finance.seoGaps : unavailable("seo_api"),
-          },
+          next_steps: trackLlmNextSteps(
+            shopifyData,
+            input.queries,
+            absentAttributes,
+            input.finance.seoGaps,
+          ),
           prazo:
             "variável — depende de frequência de indexação do Gemini e volume de conteúdo publicado",
         },

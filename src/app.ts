@@ -5,6 +5,7 @@ import type { AppConfig } from "./config.js";
 import { registerBearerAuth } from "./plugins/bearer-auth.js";
 import { registerErrorHandler } from "./plugins/error-handler.js";
 import { registerHealthRoute } from "./routes/health.js";
+import { registerPreviewProbeRoutes } from "./routes/v1/preview-probe.js";
 import { registerV1StatusRoute } from "./routes/v1/status.js";
 
 export async function buildApp(config: AppConfig, deps: BuildAppDeps = {}) {
@@ -26,6 +27,7 @@ export async function buildApp(config: AppConfig, deps: BuildAppDeps = {}) {
     async (v1) => {
       await registerBearerAuth(v1, config);
       await registerV1StatusRoute(v1, config);
+      await registerPreviewProbeRoutes(v1, config, deps);
       await registerCrudRoutes(v1, config, deps);
     },
     { prefix: "/v1" },

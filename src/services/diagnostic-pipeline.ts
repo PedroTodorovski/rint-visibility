@@ -63,6 +63,10 @@ export async function runDiagnosticPipeline(
 
   const assumptions = {
     receitaAiMedida: ga4Read.data.totalRevenue,
+    sessoesAi: ga4Read.data.totalSessions,
+    ...(ga4Read.data.landings?.length
+      ? { sessoesAiLandings: ga4Read.data.landings.slice(0, 8) }
+      : {}),
     citationClient: citations.citationClient,
     citationCompetitor: citations.citationCompetitor,
     citationTotal: citations.citationTotal,
@@ -71,6 +75,7 @@ export async function runDiagnosticPipeline(
     window,
     origins: {
       receitaAiMedida: ga4Read.data.meta,
+      sessoesAi: ga4Read.data.meta,
       ticketMedio: shopifyRead.data.meta,
       cacSku: metaRead.data.meta,
     },

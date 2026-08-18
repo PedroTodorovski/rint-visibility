@@ -1,3 +1,7 @@
+import type {
+  SearchConsoleOwnedContentCandidate,
+  SearchConsoleProperty,
+} from "../lib/citation-gold.js";
 import type { ShopifyProductSnapshot } from "../services/diagnostic-types.js";
 
 export type AnalysisWindow = {
@@ -27,9 +31,17 @@ export type MetaSkuCac = {
   meta: PortReadMeta;
 };
 
+export type Ga4AiLanding = {
+  path: string;
+  sessions: number;
+};
+
 export type Ga4AiReferralRevenue = {
   totalRevenue: number;
-  bySource: Array<{ source: string; revenue: number }>;
+  totalSessions: number;
+  bySource: Array<{ source: string; medium: string | null; revenue: number; sessions: number }>;
+  /** Top-K AI-referral landing paths for this window. Absent when the second report did not return rows. */
+  landings?: Ga4AiLanding[];
   meta: PortReadMeta;
 };
 
@@ -76,6 +88,14 @@ export type SeoAuthorityGap = {
   meta: PortReadMeta;
 };
 
+export type SearchConsoleOwnedSurfaceRead = {
+  properties: SearchConsoleProperty[];
+  ownedContentHosts: string[];
+  ownedContentPaths: string[];
+  ownedContentCandidates: SearchConsoleOwnedContentCandidate[];
+  meta: PortReadMeta;
+};
+
 export type ShopifyRevenuePort = {
   getSkuRevenue(ref: string, window: AnalysisWindow): Promise<ShopifySkuRevenue>;
 };
@@ -115,6 +135,12 @@ export type SeoAuthorityPort = {
   }): Promise<SeoAuthorityGap>;
 };
 
+export type SearchConsolePort = {
+  getOwnedSurfaces(input: {
+    storefrontHost: string | null;
+  }): Promise<SearchConsoleOwnedSurfaceRead>;
+};
+
 export type IntegrationPorts = {
   shopify: ShopifyRevenuePort;
   shopifyProduct: ShopifyProductSnapshotPort;
@@ -124,6 +150,7 @@ export type IntegrationPorts = {
   merchantCenter: MerchantCenterPort;
   googleTrends: GoogleTrendsPort;
   seo: SeoAuthorityPort;
+  searchConsole: SearchConsolePort;
 };
 
 export type IntegrationRegistryConfig = {
@@ -151,4 +178,12 @@ export type IntegrationRegistryConfig = {
   merchantCenter?: { merchantId?: string; accessToken?: string; secretRef?: string };
   googleTrends?: { apiKey?: string; secretRef?: string };
   seo?: { provider?: "ahrefs" | "semrush" | string; apiKey?: string; secretRef?: string };
+  searchConsole?: {
+    properties?: SearchConsoleProperty[];
+    ownedContentHosts?: string[];
+    ownedContentPaths?: string[];
+    ownedContentCandidates?: SearchConsoleOwnedContentCandidate[];
+    accessToken?: string;
+    secretRef?: string;
+  };
 };

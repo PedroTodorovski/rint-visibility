@@ -1,4 +1,8 @@
-import type { ClientCitationEvidence } from "../lib/citation-gold.js";
+import type {
+  ClientCitationEvidence,
+  SearchConsoleOwnedContentCandidate,
+  SearchConsoleProperty,
+} from "../lib/citation-gold.js";
 import type { GeminiStructuredOutput } from "../lib/llm/gemini-structured.js";
 
 export type DiagnosticPlan = "essential" | "pro";
@@ -57,6 +61,15 @@ export type ShopifyProductSnapshot = {
       thin: boolean;
       gaps: Array<"attributes" | "description" | "physical" | "image_alt">;
     };
+    /** Brand-owned surfaces known at diagnosis time. Do not infer every subdomain as owned. */
+    ownedSurfaces?: {
+      storefrontHosts?: string[];
+      ownedContentHosts?: string[];
+      ownedContentPaths?: string[];
+      searchConsoleProperties?: SearchConsoleProperty[];
+      ownedContentCandidates?: SearchConsoleOwnedContentCandidate[];
+      meta?: { port?: string; source?: string; fetchedAt?: string };
+    };
   };
 };
 
@@ -74,6 +87,9 @@ export type QueryExecutionRecord = {
   model: string;
   mocked: boolean;
   citation: ClientCitationEvidence;
+  grounding_supports?: Array<{ text: string; hosts: string[]; hrefs: string[] }>;
+  follow_up?: boolean;
+  follow_up_query?: string;
 };
 
 export type DiagnosticRunConfig = {

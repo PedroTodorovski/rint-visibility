@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 
 import type { AppConfig } from "./config.js";
 import { hasSupabaseConfig } from "./config.js";
+import type { LlmClients } from "./lib/llm/types.js";
 import { createRepositories, type VisibilityRepositories } from "./repositories/index.js";
 import { registerDiagnosticsRoutes } from "./routes/v1/diagnostics.js";
 import { registerProbeRunRoutes } from "./routes/v1/probe-runs.js";
@@ -12,10 +13,13 @@ import { registerResultRoutes } from "./routes/v1/results.js";
 import { registerScoreRoutes } from "./routes/v1/scores.js";
 import { registerStoreRoutes } from "./routes/v1/stores.js";
 import { createDiagnosticQueue, type DiagnosticQueue } from "./services/diagnostic-queue.js";
+import type { PreviewGeminiProbeStore } from "./services/preview-gemini-probe.js";
 
 export type BuildAppDeps = {
   repositories?: VisibilityRepositories;
   diagnosticQueue?: DiagnosticQueue;
+  llm?: LlmClients;
+  previewProbeStore?: PreviewGeminiProbeStore;
 };
 
 function notConfiguredReply() {

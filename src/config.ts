@@ -12,6 +12,7 @@ export type AppConfig = {
   anthropicModel: string | null;
   geminiApiKey: string | null;
   geminiModel: string | null;
+  geminiCopyModel: string | null;
   redisUrl: string | null;
   diagnosticMaxSkus: number;
   diagnosticMaxQueriesPerSku: number;
@@ -47,6 +48,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     anthropicModel: env.ANTHROPIC_MODEL?.trim() || null,
     geminiApiKey: env.GEMINI_API_KEY?.trim() || null,
     geminiModel: env.GEMINI_MODEL?.trim() || null,
+    geminiCopyModel: env.GEMINI_COPY_MODEL?.trim() || null,
     redisUrl: env.REDIS_URL?.trim() || null,
     diagnosticMaxSkus: readPositiveInteger(env.DIAGNOSTIC_MAX_SKUS, 3),
     diagnosticMaxQueriesPerSku: readPositiveInteger(env.DIAGNOSTIC_MAX_QUERIES_PER_SKU, 5),

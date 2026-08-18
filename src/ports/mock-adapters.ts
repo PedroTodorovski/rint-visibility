@@ -16,6 +16,8 @@ import type {
   MetaCacPort,
   MetaSkuCac,
   ProductConversionMetrics,
+  SearchConsoleOwnedSurfaceRead,
+  SearchConsolePort,
   SeoAuthorityPort,
   ShopifyProductSnapshotPort,
   ShopifyRevenuePort,
@@ -42,7 +44,7 @@ export function createShopifyRevenuePort(
   overrides?: Partial<Record<string, Omit<ShopifySkuRevenue, "meta">>>,
 ): ShopifyRevenuePort {
   return {
-    async getSkuRevenue(ref: string, window: AnalysisWindow): Promise<ShopifySkuRevenue> {
+    async getSkuRevenue(ref: string, _window: AnalysisWindow): Promise<ShopifySkuRevenue> {
       const override = overrides?.[ref];
       if (override) {
         return { ...override, meta: metaFor("shopify", config.shopify?.shopDomain ?? "mock") };
@@ -158,10 +160,26 @@ export function createGa4AiReferralPort(
       const totalRevenue = overrideRevenue ?? 4500;
       return {
         totalRevenue,
+        totalSessions: 44,
         bySource: [
-          { source: "chatgpt.com", revenue: totalRevenue * 0.5 },
-          { source: "gemini.google.com", revenue: totalRevenue * 0.3 },
-          { source: "perplexity.ai", revenue: totalRevenue * 0.2 },
+          {
+            source: "chatgpt.com",
+            medium: "ai-assistant",
+            revenue: totalRevenue * 0.5,
+            sessions: 22,
+          },
+          {
+            source: "gemini.google.com",
+            medium: "referral",
+            revenue: totalRevenue * 0.3,
+            sessions: 13,
+          },
+          {
+            source: "perplexity.ai",
+            medium: "(not set)",
+            revenue: totalRevenue * 0.2,
+            sessions: 9,
+          },
         ],
         meta: metaFor("ga4", config.ga4?.propertyId ?? "mock"),
       };
@@ -244,6 +262,22 @@ export function createSeoAuthorityPort(config: IntegrationRegistryConfig): SeoAu
   };
 }
 
+export function createSearchConsolePort(config: IntegrationRegistryConfig): SearchConsolePort {
+  return {
+    async getOwnedSurfaces(input): Promise<SearchConsoleOwnedSurfaceRead> {
+      const configured = config.searchConsole;
+      const host = input.storefrontHost?.trim() ?? "";
+      return {
+        properties: configured?.properties ?? [],
+        ownedContentHosts: configured?.ownedContentHosts ?? [],
+        ownedContentPaths: configured?.ownedContentPaths ?? ["/blog", "/pages", "/guias"],
+        ownedContentCandidates: configured?.ownedContentCandidates ?? [],
+        meta: metaFor("search_console", configured?.secretRef ?? (host || "stub_unavailable")),
+      };
+    },
+  };
+}
+
 export function createIntegrationPorts(
   config: IntegrationRegistryConfig = {},
   window: AnalysisWindow = defaultWindow(),
@@ -257,6 +291,7 @@ export function createIntegrationPorts(
     merchantCenter: MerchantCenterPort;
     googleTrends: GoogleTrendsPort;
     seo: SeoAuthorityPort;
+    searchConsole: SearchConsolePort;
   };
   window: AnalysisWindow;
 } {
@@ -300,6 +335,7 @@ export function createIntegrationPorts(
       merchantCenter: createMerchantCenterPort(config),
       googleTrends: createGoogleTrendsPort(config),
       seo: createSeoAuthorityPort(config),
+      searchConsole: createSearchConsolePort(config),
     },
     window,
   };
