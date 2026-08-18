@@ -13,10 +13,11 @@ progress:
 ## Current Position
 
 - **Phase:** 1 — MVP 2026 (lacuna de receita)
-- **Branch:** `feat/cited-offer-crown`
-- **Shipped this slice:** Follow-up de compra só se o **storefront** falta. `objetos_citados`. `first_action` / `content_brief` em `track_llm`. GA4: `sessoesAi` + top-K `sessoesAiLandings` no snapshot (evidência; não escolhe `target_url`). Preview probe + runner dominante.
-- **In flight:** PR `feat/cited-offer-crown`. Sem migration.
-- **Next:** Merge. Port GSC real fica para slice seguinte (hoje stub / candidatas só se o config as trouxer).
+- **Branch:** `feat/diagnosis-day-photo`
+- **Shipped this slice:** Foto do dia — mesmo produto + mesma pergunta no mesmo dia (`America/Sao_Paulo`) reusa o job; pergunta nova = job novo e só o par novo vai à web. `GET /v1/diagnostics/day-photos`. Sem migration.
+- **Already on main:** Follow-up de compra só se o **storefront** falta. `objetos_citados`. `first_action` / `content_brief` em `track_llm`. GA4: `sessoesAi` + top-K `sessoesAiLandings` (#31).
+- **In flight:** `feat/diagnosis-day-photo` (pareado com rint-app). Sem migration.
+- **Next:** Reviewer → ship. Linha no tempo / média / “medir de novo” ficam fora.
 
 ## Repo boundaries
 
@@ -27,6 +28,7 @@ progress:
 
 ## Decisions Log
 
+- 2026-08-18: **Foto do dia** — par produto+pergunta carimbado no fuso `America/Sao_Paulo`. Mesmo teste no mesmo dia reusa o diagnóstico; pergunta diferente copia o par existente e só o novo vai à web. Sem warehouse. Contrato: `rint-app/.planning/MVP-DEFINITION.md`.
 - 2026-08-18: GA4 AI-referral persiste `sessoesAi` e top-K `sessoesAiLandings` (path + sessions) no snapshot. Não é warehouse de pageview. Não escolhe `first_action` / `target_url`. Contrato: `rint-app/docs/architecture/DATA-MINIMALISM-CONTRACT.md`.
 - 2026-08-18: Search Console preparado como port pontual `getOwnedSurfaces` (preview simulado no admin; sem OAuth real ainda). O snapshot recebe `ownedSurfaces` e o `content_brief` pode marcar `target_url_source: search_console`.
 - 2026-08-18: Superfícies próprias da marca classificadas em `owned_storefront`, `owned_content_directory`, `owned_content_subdomain`, `external_source`. Search Console `domain` cobre subdomínios; `url_prefix` não. `track_llm` cria URL editorial nova ou melhora URL própria existente. Contrato: `rint-app/docs/DIAGNOSIS-DOMINANT.md`.

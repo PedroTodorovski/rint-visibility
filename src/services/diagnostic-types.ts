@@ -90,6 +90,8 @@ export type QueryExecutionRecord = {
   grounding_supports?: Array<{ text: string; hosts: string[]; hrefs: string[] }>;
   follow_up?: boolean;
   follow_up_query?: string;
+  measured_at?: string;
+  from_query_id?: string;
 };
 
 export type DiagnosticRunConfig = {

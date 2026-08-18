@@ -5,6 +5,12 @@ import { requireWorkspaceId } from "../../lib/request.js";
 import type { IntegrationRegistryConfig } from "../../ports/types.js";
 import type { VisibilityRepositories } from "../../repositories/index.js";
 import {
+  dayPhotoPublicPayload,
+  findIdenticalDayPhotoSet,
+  fingerprintActiveCluster,
+  loadDayPhotoIndex,
+} from "../../services/day-photo.js";
+import {
   providersFromIntegrationConfig,
   summarizeDiagnosticJobs,
 } from "../../services/diagnostic-job-summary.js";
@@ -67,6 +73,22 @@ export async function registerDiagnosticsRoutes(
     const store = await repos.stores.requireByWorkspaceId(workspaceId);
     const body = parseRunBody(request.body);
 
+    const products = await repos.products.listByStoreId(store.id);
+    const prompts = await repos.prompts.listByStoreId(store.id);
+    const fingerprint = fingerprintActiveCluster(products, prompts);
+    const dayPhotos = await loadDayPhotoIndex(repos, store.id);
+    const identical = findIdenticalDayPhotoSet(dayPhotos, fingerprint);
+    if (identical) {
+      return reply.code(200).send({
+        job_id: identical.job_id,
+        probe_run_id: identical.probe_run_id,
+        status: "completed",
+        reused: true,
+        status_url: `/v1/jobs/${identical.job_id}?workspace_id=${encodeURIComponent(workspaceId)}`,
+        result_url: `/v1/diagnostics/${identical.job_id}?workspace_id=${encodeURIComponent(workspaceId)}`,
+      });
+    }
+
     const probeRun = await repos.probeRuns.create(store.id, new Date().toISOString().slice(0, 10));
     const job = await repos.jobs.create({
       store_id: store.id,
@@ -93,9 +115,17 @@ export async function registerDiagnosticsRoutes(
       job_id: job.id,
       probe_run_id: probeRun.id,
       status: job.status,
+      reused: false,
       status_url: `/v1/jobs/${job.id}?workspace_id=${encodeURIComponent(workspaceId)}`,
       result_url: `/v1/diagnostics/${job.id}?workspace_id=${encodeURIComponent(workspaceId)}`,
     });
+  });
+
+  app.get("/diagnostics/day-photos", async (request, reply) => {
+    const workspaceId = requireWorkspaceId(request);
+    const store = await repos.stores.requireByWorkspaceId(workspaceId);
+    const index = await loadDayPhotoIndex(repos, store.id);
+    return reply.code(200).send(dayPhotoPublicPayload(index));
   });
 
   app.get("/jobs", async (request, reply) => {
