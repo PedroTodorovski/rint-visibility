@@ -103,6 +103,7 @@ export type JobsRepositoryLike = Pick<
   | "findLatestByStoreId"
   | "findByProbeRunId"
   | "listByStoreId"
+  | "listCompletedSince"
   | "countByStoreId"
 >;
 export type DiagnosticSkusRepositoryLike = Pick<

@@ -227,6 +227,20 @@ export class JobsRepository {
     return (data ?? []) as JobRow[];
   }
 
+  async listCompletedSince(storeId: string, sinceIso: string): Promise<JobRow[]> {
+    const { data, error } = await this.db
+      .from("jobs")
+      .select("*")
+      .eq("store_id", storeId)
+      .eq("status", "completed")
+      .gte("completed_at", sinceIso)
+      .order("completed_at", { ascending: false })
+      .limit(50);
+
+    if (error) throw mapPostgrestError(error, "Failed to list completed diagnostic jobs");
+    return (data ?? []) as JobRow[];
+  }
+
   async countByStoreId(storeId: string): Promise<number> {
     const { count, error } = await this.db
       .from("jobs")

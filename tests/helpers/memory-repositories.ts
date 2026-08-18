@@ -509,6 +509,17 @@ export function createMemoryRepositories(): VisibilityRepositories {
           .sort((a, b) => b.created_at.localeCompare(a.created_at))
           .slice(offset, offset + limit);
       },
+      async listCompletedSince(storeId: string, sinceIso: string) {
+        return [...jobRows]
+          .filter(
+            (row) =>
+              row.store_id === storeId &&
+              row.status === "completed" &&
+              typeof row.completed_at === "string" &&
+              row.completed_at >= sinceIso,
+          )
+          .sort((a, b) => (b.completed_at ?? "").localeCompare(a.completed_at ?? ""));
+      },
       async countByStoreId(storeId: string) {
         return jobRows.filter((row) => row.store_id === storeId).length;
       },

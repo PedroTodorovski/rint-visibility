@@ -22,6 +22,7 @@
 5. Validar URL antes de contar citação. Storefront do cliente (`identity.domain`) ≠ blog/ajuda no mesmo registrável.
 6. Se a resposta nomeia a marca e o storefront não está no texto nem no grounding, **um** follow-up de compra na mesma query — [PROOF-CLIENT-SITE.md](../../rint-app/docs/PROOF-CLIENT-SITE.md).
 7. Calcular `citação_cliente` / `citação_concorrente` por cluster de prompts
+8. **Foto do dia** — se o mesmo produto + a mesma pergunta (maiúscula/espaço/acento ignorados) já tem evidência completed hoje (`America/Sao_Paulo`), **não** buscar de novo. Copiar a evidência e o horário em que foi medida. Se o conjunto inteiro de URLs+perguntas for idêntico a um job completed hoje, devolver esse job — não enfileirar. Uma pergunta diferente = job novo; só o par novo vai à web. Citação continua só com o link da loja nas fontes — menção no texto não conta. Linha no tempo é evolução. Canônico: [MVP-DEFINITION.md](../../rint-app/.planning/MVP-DEFINITION.md).
 
 ---
 

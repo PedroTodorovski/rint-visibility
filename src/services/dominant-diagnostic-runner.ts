@@ -28,6 +28,14 @@ import type { DiagnosticQueryRow, DiagnosticSkuRow } from "../repositories/diagn
 import type { VisibilityRepositories } from "../repositories/index.js";
 import type { ProductRow, PromptRow, StoreRow } from "../repositories/types.js";
 import {
+  copyDayPhotoQuery,
+  type DayPhotoIndex,
+  isDayPhotoCopy,
+  loadDayPhotoIndex,
+  lookupDayPhotoPair,
+  stampMeasuredAt,
+} from "./day-photo.js";
+import {
   assertRunLimits,
   groupQueriesByProduct,
   validateAndSnapshotSku,
@@ -151,12 +159,25 @@ async function executeQuery(input: {
   prompt: PromptRow;
   llm: LlmClients;
   config: DiagnosticRunConfig;
+  dayPhotos: DayPhotoIndex;
 }): Promise<Omit<DiagnosticQueryRow, "id" | "created_at">> {
+  const existing = lookupDayPhotoPair(input.dayPhotos, input.sku.url, input.prompt.prompt_text);
+  if (existing) {
+    return copyDayPhotoQuery({
+      source: existing.source,
+      jobId: input.sku.job_id,
+      skuId: input.sku.id,
+      promptId: input.prompt.id,
+      queryText: input.prompt.prompt_text,
+    });
+  }
+
   if (!input.llm.gemini.diagnoseQuery) {
     throw new Error("Gemini diagnostic client is not configured");
   }
 
   const executions: QueryExecutionRecord[] = [];
+  const measuredAt = new Date().toISOString();
 
   for (let i = 0; i < input.config.executionsPerQuery; i++) {
     const result: LlmStructuredDiagnosticResult = await input.llm.gemini.diagnoseQuery({
@@ -199,6 +220,7 @@ async function executeQuery(input: {
       mocked: result.mocked,
       citation,
       grounding_supports: bindGroundingSupports(result.groundingSupports, resolved),
+      measured_at: measuredAt,
     });
   }
 
@@ -258,6 +280,7 @@ async function executeQuery(input: {
         grounding_supports: bindGroundingSupports(follow.groundingSupports, followResolved),
         follow_up: true,
         follow_up_query: plan.query,
+        measured_at: measuredAt,
       });
     }
   }
@@ -319,7 +342,7 @@ async function executeQuery(input: {
       input.config.executionsPerQuery > 1
         ? `${citedCount} de ${input.config.executionsPerQuery} execuções citaram você`
         : null,
-    executions: executions as unknown as Record<string, unknown>[],
+    executions: stampMeasuredAt(executions, measuredAt) as unknown as Record<string, unknown>[],
   };
 }
 
@@ -344,6 +367,7 @@ async function completeCitedOffers(input: {
   for (const sku of input.skuRows) {
     const skuDrafts = bySku.get(sku.row.id);
     if (!skuDrafts?.length) continue;
+    if (skuDrafts.every(isDayPhotoCopy)) continue;
     const objectsByQuery = skuDrafts.map((draft) =>
       citedObjectsFromStructured(draft.gemini_structured),
     );
@@ -368,7 +392,7 @@ async function completeCitedOffers(input: {
       temperature: input.config.geminiTemperature,
     });
     const last = skuDrafts[skuDrafts.length - 1];
-    if (!last) continue;
+    if (!last || isDayPhotoCopy(last)) continue;
     const existing = citedObjectsFromStructured(last.gemini_structured);
     const incoming = citedObjectsFromStructured(result.structured);
     last.gemini_structured = hydrateGeminiStructured({
@@ -442,6 +466,7 @@ export async function runDominantDiagnostic(
     const gold = shopifyConnected(payload.integrationConfig);
 
     const store = await deps.repos.stores.requireByWorkspaceId(payload.workspaceId);
+    const dayPhotos = await loadDayPhotoIndex(deps.repos, store.id);
     const [productsAll, prompts] = await Promise.all([
       deps.repos.products.listByStoreId(store.id),
       deps.repos.prompts.listByStoreId(store.id),
@@ -517,6 +542,7 @@ export async function runDominantDiagnostic(
           prompt,
           llm: deps.llm,
           config: runConfig,
+          dayPhotos,
         }),
     );
     const completed = await completeCitedOffers({
