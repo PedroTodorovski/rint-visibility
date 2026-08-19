@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { ProductRow, PromptRow } from "../src/repositories/types.js";
-import { groupQueriesByProduct, productsForDiagnosis } from "../src/services/diagnostic-input.js";
+import {
+  groupQueriesByProduct,
+  isLikelyPdpUrl,
+  productsForDiagnosis,
+} from "../src/services/diagnostic-input.js";
 
 function product(id: string, position: number): ProductRow {
   return {
@@ -37,5 +41,30 @@ describe("productsForDiagnosis", () => {
     expect(productsForDiagnosis([leftover, asked], grouped).map((row) => row.id)).toEqual([
       "asked",
     ]);
+  });
+});
+
+describe("isLikelyPdpUrl", () => {
+  it("accepts Shopify, Nuvemshop, VTEX, and a root-slug PDP", () => {
+    expect(isLikelyPdpUrl("https://loja.com/products/handle")).toBe(true);
+    expect(isLikelyPdpUrl("https://loja.com/produtos/camiseta")).toBe(true);
+    expect(isLikelyPdpUrl("https://loja.com/slug/p")).toBe(true);
+    expect(isLikelyPdpUrl("https://loja.com/camisa-azul")).toBe(true);
+  });
+
+  it("accepts marketplace product pages", () => {
+    expect(isLikelyPdpUrl("https://mercadolivre.com.br/item-camisa")).toBe(true);
+    expect(isLikelyPdpUrl("https://www.amazon.com.br/dp/B0EXAMPLE")).toBe(true);
+  });
+
+  it("rejects YouTube, news, home, blog, and collections", () => {
+    expect(isLikelyPdpUrl("https://www.youtube.com/watch?v=abc")).toBe(false);
+    expect(isLikelyPdpUrl("https://www.youtube-nocookie.com/embed/abc")).toBe(false);
+    expect(isLikelyPdpUrl("https://g1.globo.com/economia/noticia/foo.html")).toBe(false);
+    expect(isLikelyPdpUrl("https://loja.com")).toBe(false);
+    expect(isLikelyPdpUrl("https://loja.com/")).toBe(false);
+    expect(isLikelyPdpUrl("https://loja.com/blog/post")).toBe(false);
+    expect(isLikelyPdpUrl("https://loja.com/collections/all")).toBe(false);
+    expect(isLikelyPdpUrl("https://loja.com/colecao/verao")).toBe(false);
   });
 });
