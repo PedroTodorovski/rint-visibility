@@ -481,6 +481,22 @@ export function createMemoryRepositories(): VisibilityRepositories {
         jobRows[index] = updated;
         return updated;
       },
+      async failIfInFlight(id: string, fields: { completed_at: string; error_message: string }) {
+        const index = jobRows.findIndex((row) => row.id === id);
+        if (index === -1) throw notFound(`Job ${id} not found`);
+        const current = jobRows[index];
+        if (!current) throw notFound(`Job ${id} not found`);
+        if (current.status !== "pending" && current.status !== "running") return current;
+        const updated: JobRow = {
+          ...current,
+          status: "failed",
+          updated_at: new Date().toISOString(),
+          completed_at: fields.completed_at,
+          error_message: fields.error_message,
+        };
+        jobRows[index] = updated;
+        return updated;
+      },
       async findByIdForStore(storeId: string, jobId: string) {
         return jobRows.find((row) => row.store_id === storeId && row.id === jobId) ?? null;
       },
@@ -522,6 +538,9 @@ export function createMemoryRepositories(): VisibilityRepositories {
       },
       async countByStoreId(storeId: string) {
         return jobRows.filter((row) => row.store_id === storeId).length;
+      },
+      async listInFlight() {
+        return jobRows.filter((row) => row.status === "pending" || row.status === "running");
       },
     },
     diagnosticSkus: {

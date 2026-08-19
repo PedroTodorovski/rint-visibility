@@ -98,12 +98,14 @@ export type JobsRepositoryLike = Pick<
   JobsRepository,
   | "create"
   | "updateStatus"
+  | "failIfInFlight"
   | "findByIdForStore"
   | "findById"
   | "findLatestByStoreId"
   | "findByProbeRunId"
   | "listByStoreId"
   | "listCompletedSince"
+  | "listInFlight"
   | "countByStoreId"
 >;
 export type DiagnosticSkusRepositoryLike = Pick<

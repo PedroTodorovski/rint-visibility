@@ -11,6 +11,10 @@ import {
   loadDayPhotoIndex,
 } from "../../services/day-photo.js";
 import {
+  failStaleDiagnosticJob,
+  failStaleDiagnosticJobs,
+} from "../../services/diagnostic-job-stale.js";
+import {
   providersFromIntegrationConfig,
   summarizeDiagnosticJobs,
 } from "../../services/diagnostic-job-summary.js";
@@ -137,10 +141,11 @@ export async function registerDiagnosticsRoutes(
     const total = await repos.jobs.countByStoreId(store.id);
     const totalPages = Math.max(1, Math.ceil(total / limit));
     const page = Math.min(totalPages, requestedPage);
-    const jobs = await repos.jobs.listByStoreId(store.id, {
+    const listed = await repos.jobs.listByStoreId(store.id, {
       limit,
       offset: (page - 1) * limit,
     });
+    const jobs = await failStaleDiagnosticJobs(repos.jobs, listed);
     const jobIds = jobs.map((job) => job.id);
     const [skus, queries, diagnostics] = await Promise.all([
       repos.diagnosticSkus.listByJobIds(jobIds),
@@ -160,12 +165,13 @@ export async function registerDiagnosticsRoutes(
     const workspaceId = requireWorkspaceId(request);
     const store = await repos.stores.requireByWorkspaceId(workspaceId);
     const { jobId } = request.params as { jobId: string };
-    const job = await repos.jobs.findByIdForStore(store.id, jobId);
+    const found = await repos.jobs.findByIdForStore(store.id, jobId);
 
-    if (!job) {
+    if (!found) {
       throw notFound(`Job ${jobId} not found`);
     }
 
+    const job = await failStaleDiagnosticJob(repos.jobs, found);
     return reply.code(200).send({ job });
   });
 
@@ -173,8 +179,9 @@ export async function registerDiagnosticsRoutes(
     const workspaceId = requireWorkspaceId(request);
     const store = await repos.stores.requireByWorkspaceId(workspaceId);
     const { jobId } = request.params as { jobId: string };
-    const job = await repos.jobs.findByIdForStore(store.id, jobId);
-    if (!job) throw notFound(`Job ${jobId} not found`);
+    const found = await repos.jobs.findByIdForStore(store.id, jobId);
+    if (!found) throw notFound(`Job ${jobId} not found`);
+    await failStaleDiagnosticJob(repos.jobs, found);
 
     const payload = await diagnosticPayload(repos, jobId);
     return reply.code(200).send(payload);
@@ -189,6 +196,7 @@ export async function registerDiagnosticsRoutes(
       ? await repos.jobs.findByProbeRunId(store.id, probeRunId)
       : await repos.jobs.findLatestByStoreId(store.id);
     if (latestJob) {
+      await failStaleDiagnosticJob(repos.jobs, latestJob);
       const payload = await diagnosticPayload(repos, latestJob.id);
       return reply.code(200).send(payload);
     }
