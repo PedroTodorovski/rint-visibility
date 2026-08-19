@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { ProductRow, PromptRow } from "../src/repositories/types.js";
-import { groupQueriesByProduct, isLikelyPdpUrl, productsForDiagnosis } from "../src/services/diagnostic-input.js";
+import {
+  groupQueriesByProduct,
+  isLikelyPdpUrl,
+  productsForDiagnosis,
+} from "../src/services/diagnostic-input.js";
 
 function product(id: string, position: number): ProductRow {
   return {
