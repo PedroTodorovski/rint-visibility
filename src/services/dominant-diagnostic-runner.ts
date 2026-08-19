@@ -38,6 +38,7 @@ import {
 import {
   assertRunLimits,
   groupQueriesByProduct,
+  productsForDiagnosis,
   validateAndSnapshotSku,
 } from "./diagnostic-input.js";
 import { providersFromIntegrationConfig } from "./diagnostic-job-summary.js";
@@ -485,8 +486,11 @@ export async function runDominantDiagnostic(
       );
     }
 
-    const products = productsAll.sort((a, b) => a.position - b.position);
-    const promptsByProduct = groupQueriesByProduct(products, activePrompts);
+    const promptsByProduct = groupQueriesByProduct(productsAll, activePrompts);
+    const products = productsForDiagnosis(productsAll, promptsByProduct);
+    if (products.length === 0) {
+      throw new AppError(400, "VALIDATION_ERROR", "Nenhum SKU com pergunta ativa para diagnóstico");
+    }
     assertRunLimits(products, promptsByProduct, runConfig);
 
     const { ports, window } = createIntegrationPorts(payload.integrationConfig);
