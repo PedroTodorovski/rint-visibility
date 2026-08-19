@@ -8,10 +8,13 @@ import {
   hydrateGeminiStructured,
   parseGeminiStructuredOutput,
 } from "./gemini-structured.js";
+import { SHOPPER_EVIDENCE_MISSING } from "./shopper-evidence.js";
 import type { LlmClient, LlmProbeResult, LlmStructuredDiagnosticResult } from "./types.js";
 
-const DEFAULT_MODEL = "gemini-2.0-flash";
+const DEFAULT_MODEL = "gemini-2.5-flash";
 const DEFAULT_COPY_MODEL = "gemini-2.5-flash";
+const GROUNDING_MAX_OUTPUT_TOKENS = 8192;
+const GENERATE_RETRY_DELAYS_MS = [0, 250, 800];
 
 function mergeGroundingChunks(
   first: Array<{ uri: string; title?: string }>,
@@ -31,8 +34,10 @@ export type GeminiProbeExtras = {
 };
 
 type GeminiGenerateResponse = {
+  promptFeedback?: { blockReason?: string };
   candidates?: Array<{
-    content?: { parts?: Array<{ text?: string }> };
+    finishReason?: string;
+    content?: { parts?: Array<{ text?: string; thought?: boolean }> };
     groundingMetadata?: {
       groundingChunks?: Array<{ web?: { uri?: string; title?: string } }>;
       groundingSupports?: Array<{
@@ -43,6 +48,61 @@ type GeminiGenerateResponse = {
   }>;
 };
 
+export function visibleTextFromGeminiParts(
+  parts?: Array<{ text?: string; thought?: boolean }>,
+): string {
+  return (parts ?? [])
+    .filter((part) => part.thought !== true)
+    .map((part) => part.text?.replace(/\s+/g, " ").trim() ?? "")
+    .filter(Boolean)
+    .join("\n\n")
+    .trim();
+}
+
+function logGeminiGenerateFailed(input: {
+  model: string;
+  status?: number;
+  finishReason?: string;
+  blockReason?: string;
+}): void {
+  console.info(
+    JSON.stringify({
+      msg: "llm_generate_failed",
+      provider: "gemini",
+      model: input.model,
+      status: input.status,
+      finishReason: input.finishReason,
+      blockReason: input.blockReason,
+    }),
+  );
+}
+
+async function sleep(ms: number): Promise<void> {
+  if (ms <= 0) return;
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function postGeminiGenerate(input: {
+  apiKey: string;
+  model: string;
+  body: Record<string, unknown>;
+  timeoutMs: number;
+}): Promise<{ ok: true; data: GeminiGenerateResponse } | { ok: false; status: number }> {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${input.model}:generateContent?key=${encodeURIComponent(input.apiKey)}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input.body),
+    signal: AbortSignal.timeout(input.timeoutMs),
+  });
+  if (!res.ok) {
+    logGeminiGenerateFailed({ model: input.model, status: res.status });
+    return { ok: false, status: res.status };
+  }
+  const data = (await res.json()) as GeminiGenerateResponse;
+  return { ok: true, data };
+}
+
 async function callGeminiPlainText(
   apiKey: string,
   model: string,
@@ -50,26 +110,21 @@ async function callGeminiPlainText(
   temperature = 0.2,
   maxOutputTokens = 384,
 ): Promise<string | null> {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
-
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
+  const posted = await postGeminiGenerate({
+    apiKey,
+    model,
+    timeoutMs: 20_000,
+    body: {
       contents: [{ parts: [{ text: userContent }] }],
       generationConfig: {
         temperature,
         maxOutputTokens,
         thinkingConfig: { thinkingBudget: 0 },
       },
-    }),
-    signal: AbortSignal.timeout(20_000),
+    },
   });
-
-  if (!res.ok) return null;
-
-  const data = (await res.json()) as GeminiGenerateResponse;
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? "";
+  if (!posted.ok) return null;
+  const text = visibleTextFromGeminiParts(posted.data.candidates?.[0]?.content?.parts);
   return text || null;
 }
 
@@ -85,39 +140,66 @@ async function callGeminiWithGrounding(
   groundingChunks: Array<{ uri: string; title?: string }>;
   groundingSupports: ReturnType<typeof extractGroundingMetadata>["supports"];
 } | null> {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
-
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: userContent }] }],
-      tools: [{ googleSearch: {} }],
-      generationConfig: { temperature, maxOutputTokens: 2048 },
-    }),
-    signal: AbortSignal.timeout(120_000),
-  });
-
-  if (!res.ok) return null;
-
-  const data = (await res.json()) as GeminiGenerateResponse;
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? "";
-  if (!text) return null;
-
-  const grounding = extractGroundingMetadata(data);
-  const groundingChunks = grounding.chunks.map((chunk) => ({
-    uri: chunk.uri,
-    title: chunk.title?.replace(/\s+/g, " ").trim() || undefined,
-  }));
-  const groundingUrls = groundingChunks.map((chunk) => chunk.uri);
-
-  return {
-    text,
-    model,
-    groundingUrls,
-    groundingChunks,
-    groundingSupports: grounding.supports,
+  const body = {
+    contents: [{ parts: [{ text: userContent }] }],
+    tools: [{ googleSearch: {} }],
+    generationConfig: {
+      temperature,
+      maxOutputTokens: GROUNDING_MAX_OUTPUT_TOKENS,
+      thinkingConfig: { thinkingBudget: 0 },
+    },
   };
+
+  for (let attempt = 0; attempt < GENERATE_RETRY_DELAYS_MS.length; attempt++) {
+    await sleep(GENERATE_RETRY_DELAYS_MS[attempt] ?? 0);
+    let posted: Awaited<ReturnType<typeof postGeminiGenerate>>;
+    try {
+      posted = await postGeminiGenerate({
+        apiKey,
+        model,
+        timeoutMs: 120_000,
+        body,
+      });
+    } catch {
+      logGeminiGenerateFailed({ model });
+      continue;
+    }
+
+    if (!posted.ok) {
+      if (posted.status === 429 || posted.status === 503) continue;
+      return null;
+    }
+
+    const candidate = posted.data.candidates?.[0];
+    const text = visibleTextFromGeminiParts(candidate?.content?.parts);
+    if (!text) {
+      logGeminiGenerateFailed({
+        model,
+        finishReason: candidate?.finishReason,
+        blockReason: posted.data.promptFeedback?.blockReason,
+      });
+      return null;
+    }
+
+    const grounding = extractGroundingMetadata(
+      posted.data as Parameters<typeof extractGroundingMetadata>[0],
+    );
+    const groundingChunks = grounding.chunks.map((chunk) => ({
+      uri: chunk.uri,
+      title: chunk.title?.replace(/\s+/g, " ").trim() || undefined,
+    }));
+    const groundingUrls = groundingChunks.map((chunk) => chunk.uri);
+
+    return {
+      text,
+      model,
+      groundingUrls,
+      groundingChunks,
+      groundingSupports: grounding.supports,
+    };
+  }
+
+  return null;
 }
 
 function mockStructuredFromShopperAnswer(): LlmStructuredDiagnosticResult["structured"] {
@@ -355,20 +437,7 @@ export function createGeminiClient(config: AppConfig): LlmClient {
       const textPrompt = buildDiagnosticTextPrompt(input.query);
       const first = await callGeminiWithGrounding(apiKey, model, textPrompt, input.temperature);
       if (!first?.text) {
-        return {
-          rawText: "",
-          structured: emptyGeminiStructured(),
-          model: "mock",
-          mocked: true,
-          usedWebSearch: false,
-          groundingUrls: [],
-          groundingChunks: [],
-          groundingSupports: [],
-          calls: [
-            { type: "text", usedWebSearch: false, model: "mock" },
-            { type: "structure", usedWebSearch: false, model: "mock" },
-          ],
-        };
+        throw new Error(SHOPPER_EVIDENCE_MISSING);
       }
 
       const structurePrompt = buildDiagnosticStructurePrompt(first.text);

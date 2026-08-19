@@ -25,7 +25,7 @@ The dominant diagnostics engine is asynchronous. Production must run two Railway
 1. API service: `npm start`
 2. Worker service: `npm run start:worker`
 
-Both services need the same runtime variables. The API enqueues jobs in BullMQ; the worker consumes them and writes job status, evidence, financial risk, and final diagnostics back to Supabase.
+Both services need the same runtime variables, including `GEMINI_API_KEY` (and `GEMINI_MODEL` if set). The API enqueues jobs in BullMQ; the worker consumes them and writes job status, evidence, financial risk, and final diagnostics back to Supabase.
 
 `GET /health` reports `diagnostic_queue: "bullmq" | "in_process"`. In production this must be `"bullmq"`, and the worker service must be healthy — otherwise jobs stay `pending`/`running` forever.
 
@@ -78,7 +78,11 @@ Expected: `{"status":"ok","service":"rint-visibility",...}`
 | `SUPABASE_URL` | Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server-side only |
 | `REDIS_URL` | Required in production for BullMQ diagnostics queue |
-| `DIAGNOSTIC_QUERY_CONCURRENCY` | Optional, defaults to `3` — parallel Gemini queries per job |
+| `GEMINI_API_KEY` | Required in production on **API and worker**. Grounded shopper probes. |
+| `GEMINI_MODEL` | Optional, defaults to `gemini-2.5-flash`. Same value on API and worker. |
+| `GEMINI_COPY_MODEL` | Optional founder-copy model. Same services. |
+| `OPENAI_API_KEY` / Perplexity | Next providers on the same diagnostic job — not required until those adapters ship. |
+| `DIAGNOSTIC_QUERY_CONCURRENCY` | Optional, defaults to `3` — parallel shopper queries per job |
 | `DIAGNOSTIC_JOB_ATTEMPTS` | Optional, defaults to `3` |
 | `DIAGNOSTIC_JOB_BACKOFF_MS` | Optional, defaults to `30000` |
 | `DIAGNOSTIC_WEBHOOK_SECRET` | Optional shared secret for diagnostic completion webhooks |

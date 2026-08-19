@@ -90,7 +90,7 @@ export async function registerCrudRoutes(
   await registerProbeRoutes(app, repositories, config);
   await registerProbeRunRoutes(app, repositories);
   const diagnosticQueue =
-    deps.diagnosticQueue ?? createDiagnosticQueue({ repos: repositories, config });
+    deps.diagnosticQueue ?? createDiagnosticQueue({ repos: repositories, config, llm: deps.llm });
   await registerDiagnosticsRoutes(app, repositories, config, diagnosticQueue);
   await registerScoreRoutes(app, repositories);
   await registerResultRoutes(app, repositories);

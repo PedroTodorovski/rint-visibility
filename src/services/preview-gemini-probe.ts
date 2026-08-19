@@ -15,8 +15,15 @@ import {
   type GeminiStructuredOutput,
   hydrateGeminiStructured,
 } from "../lib/llm/gemini-structured.js";
-import { createLlmClients } from "../lib/llm/index.js";
-import type { LlmClients } from "../lib/llm/types.js";
+import {
+  assertUsableShopperEvidence,
+  createLlmClients,
+  enabledDiagnosticClients,
+  isUsableShopperEvidence,
+  type LlmClients,
+  type LlmProviderId,
+  SHOPPER_EVIDENCE_MISSING,
+} from "../lib/llm/index.js";
 import { mapPool } from "../lib/map-pool.js";
 import { filterAliveUrls } from "../lib/url-validator.js";
 
@@ -53,6 +60,7 @@ export type PreviewProbeQueryResult = {
     dead_urls: string[];
     model: string;
     mocked: boolean;
+    provider?: LlmProviderId;
     citation: ClientCitationEvidence;
     grounding_supports?: Array<{ text: string; hosts: string[]; hrefs: string[] }>;
     follow_up?: boolean;
@@ -181,11 +189,14 @@ async function runOneQuery(input: {
   temperature: number;
 }): Promise<PreviewProbeQueryResult> {
   const id = randomUUID();
-  if (!input.llm.gemini.diagnoseQuery) {
-    return emptyFailedQuery(id, input.query, "Gemini diagnostic client is not configured");
+  const enabled = enabledDiagnosticClients(input.llm);
+  const primary = enabled[0];
+  const diagnoseQuery = primary?.client.diagnoseQuery;
+  if (!primary || !diagnoseQuery) {
+    return emptyFailedQuery(id, input.query, "Diagnostic LLM client is not configured");
   }
 
-  const result = await input.llm.gemini.diagnoseQuery({
+  const result = await diagnoseQuery({
     query: input.query.query_text,
     storeName: input.store.name,
     domain: input.store.domain,
@@ -195,8 +206,10 @@ async function runOneQuery(input: {
     temperature: input.temperature,
   });
 
-  if (result.mocked || !result.rawText.trim()) {
-    return emptyFailedQuery(id, input.query, "gemini_mocked");
+  try {
+    assertUsableShopperEvidence(result);
+  } catch {
+    return emptyFailedQuery(id, input.query, SHOPPER_EVIDENCE_MISSING);
   }
 
   const competitorUrl = result.structured.concorrente_citado_url;
@@ -229,6 +242,7 @@ async function runOneQuery(input: {
       dead_urls: deadUrls,
       model: result.model,
       mocked: false,
+      provider: primary.provider,
       citation,
       grounding_supports: bindGroundingSupports(result.groundingSupports, resolved),
     },
@@ -254,7 +268,7 @@ async function runOneQuery(input: {
         store: input.store.name,
       }),
     );
-    const follow = await input.llm.gemini.diagnoseQuery({
+    const follow = await diagnoseQuery({
       query: plan.query,
       storeName: input.store.name,
       domain: input.store.domain,
@@ -263,7 +277,7 @@ async function runOneQuery(input: {
       productAttributes: input.query.product_attributes,
       temperature: input.temperature,
     });
-    if (!follow.mocked && follow.rawText.trim()) {
+    if (isUsableShopperEvidence(follow)) {
       const followResolved = await resolveDiagnosticGrounding(follow);
       const followCitation = scoreClientCitation({
         text: follow.rawText,
@@ -287,6 +301,7 @@ async function runOneQuery(input: {
         dead_urls: [],
         model: follow.model,
         mocked: false,
+        provider: primary.provider,
         citation: followCitation,
         grounding_supports: bindGroundingSupports(follow.groundingSupports, followResolved),
         follow_up: true,
@@ -361,7 +376,7 @@ export async function executePreviewProbeRun(input: {
           emptyFailedQuery(
             randomUUID(),
             query,
-            error instanceof Error ? error.message : "gemini_failed",
+            error instanceof Error ? error.message : SHOPPER_EVIDENCE_MISSING,
           ),
         );
       }
@@ -370,7 +385,11 @@ export async function executePreviewProbeRun(input: {
     const snapshot = input.store.get(input.runId);
     const live = snapshot?.queries.filter((query) => !query.mocked && query.gemini_raw) ?? [];
     if (live.length === 0) {
-      input.store.finish(input.runId, "failed", snapshot?.queries[0]?.error ?? "gemini_mocked");
+      input.store.finish(
+        input.runId,
+        "failed",
+        snapshot?.queries[0]?.error ?? SHOPPER_EVIDENCE_MISSING,
+      );
       return;
     }
     input.store.finish(input.runId, "completed", null);
@@ -378,7 +397,7 @@ export async function executePreviewProbeRun(input: {
     input.store.finish(
       input.runId,
       "failed",
-      error instanceof Error ? error.message : "gemini_failed",
+      error instanceof Error ? error.message : SHOPPER_EVIDENCE_MISSING,
     );
   }
 }

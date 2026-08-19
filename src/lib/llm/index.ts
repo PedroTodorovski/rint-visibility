@@ -8,11 +8,23 @@ export function createLlmClients(config: AppConfig): LlmClients {
   };
 }
 
-export type {
-  LlmBatchProbeResult,
-  LlmClient,
-  LlmClients,
-  LlmProbeResult,
-  LlmProvider,
-  LlmStructuredDiagnosticResult,
+export {
+  assertUsableShopperEvidence,
+  isUsableShopperEvidence,
+  queryCoversProviders,
+  queryHasUsableShopperEvidence,
+  SHOPPER_EVIDENCE_MISSING,
+  shopperEvidenceProvider,
+} from "./shopper-evidence.js";
+export {
+  type EnabledDiagnosticClient,
+  enabledDiagnosticClients,
+  LLM_PROVIDER_IDS,
+  type LlmBatchProbeResult,
+  type LlmClient,
+  type LlmClients,
+  type LlmProbeResult,
+  type LlmProvider,
+  type LlmProviderId,
+  type LlmStructuredDiagnosticResult,
 } from "./types.js";

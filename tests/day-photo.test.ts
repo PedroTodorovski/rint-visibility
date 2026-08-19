@@ -23,6 +23,7 @@ import {
   normalizeDayPhotoQuery,
   normalizeDayPhotoUrl,
 } from "../src/services/day-photo.js";
+import { liveLlm } from "./helpers/live-llm.js";
 import { createMemoryRepositories } from "./helpers/memory-repositories.js";
 
 function job(overrides: Partial<JobRow> = {}): JobRow {
@@ -166,6 +167,28 @@ describe("day photo", () => {
     ).toBe("job-1");
   });
 
+  it("does not index empty or mocked shopper evidence", () => {
+    const now = new Date("2026-08-18T16:00:00-03:00");
+    const index = buildDayPhotoIndex({
+      now,
+      jobs: [job()],
+      skus: [sku()],
+      queries: [
+        query({
+          gemini_raw: "",
+          executions: [{ raw_text: "", mocked: true, measured_at: "2026-08-18T12:01:00.000Z" }],
+        }),
+      ],
+    });
+    expect(index.pairs).toHaveLength(0);
+    expect(
+      findIdenticalDayPhotoSet(
+        index,
+        fingerprintDayPhotoPairs([{ url: sku().url, query: query().query_text }]),
+      ),
+    ).toBeNull();
+  });
+
   it("ignores jobs from yesterday", () => {
     const now = new Date("2026-08-18T16:00:00-03:00");
     const index = buildDayPhotoIndex({
@@ -268,7 +291,10 @@ describe("day photo API", () => {
       "fetch",
       vi.fn(async () => new Response("", { status: 200 })),
     );
-    const app = await buildApp(testConfig(), { repositories: createMemoryRepositories() });
+    const app = await buildApp(testConfig(), {
+      repositories: createMemoryRepositories(),
+      llm: liveLlm(),
+    });
     await seedStore(app);
 
     const first = await app.inject({
@@ -304,7 +330,10 @@ describe("day photo API", () => {
       "fetch",
       vi.fn(async () => new Response("", { status: 200 })),
     );
-    const app = await buildApp(testConfig(), { repositories: createMemoryRepositories() });
+    const app = await buildApp(testConfig(), {
+      repositories: createMemoryRepositories(),
+      llm: liveLlm(),
+    });
     const seeded = await seedStore(app);
 
     const first = await app.inject({

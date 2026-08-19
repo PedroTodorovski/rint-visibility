@@ -1,3 +1,4 @@
+import { queryHasUsableShopperEvidence } from "../lib/llm/shopper-evidence.js";
 import type {
   DiagnosticQueryRow,
   DiagnosticSkuRow,
@@ -186,6 +187,7 @@ export function buildDayPhotoIndex(input: {
     const pairs: Array<{ url: string; query: string }> = [];
 
     for (const query of queries) {
+      if (!queryHasUsableShopperEvidence(query)) continue;
       const sku = skuById.get(query.sku_id);
       if (!sku) continue;
       const measuredAt = queryMeasuredAt(query);

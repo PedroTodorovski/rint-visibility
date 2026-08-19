@@ -18,7 +18,18 @@ import {
   hydrateGeminiStructured,
   mergeCitedObjects,
 } from "../lib/llm/gemini-structured.js";
-import type { LlmClients, LlmStructuredDiagnosticResult } from "../lib/llm/index.js";
+import {
+  assertUsableShopperEvidence,
+  enabledDiagnosticClients,
+  isUsableShopperEvidence,
+  type LlmClient,
+  type LlmClients,
+  type LlmProviderId,
+  type LlmStructuredDiagnosticResult,
+  queryCoversProviders,
+  SHOPPER_EVIDENCE_MISSING,
+  shopperEvidenceProvider,
+} from "../lib/llm/index.js";
 import { mapPool } from "../lib/map-pool.js";
 import { filterAliveUrls } from "../lib/url-validator.js";
 import { createIntegrationPorts } from "../ports/mock-adapters.js";
@@ -33,6 +44,8 @@ import {
   isDayPhotoCopy,
   loadDayPhotoIndex,
   lookupDayPhotoPair,
+  queryFromQueryId,
+  queryMeasuredAt,
   stampMeasuredAt,
 } from "./day-photo.js";
 import {
@@ -154,6 +167,75 @@ export function selectDominantSku(
   };
 }
 
+async function recordDiagnoseExecution(input: {
+  provider: LlmProviderId;
+  result: LlmStructuredDiagnosticResult;
+  store: StoreRow;
+  sku: DiagnosticSkuRow;
+  measuredAt: string;
+  followUp?: { query: string };
+}): Promise<QueryExecutionRecord> {
+  assertUsableShopperEvidence(input.result);
+  const competitorUrl = input.result.structured.concorrente_citado_url;
+  const validation = competitorUrl ? await filterAliveUrls([competitorUrl]) : new Map();
+  const competitorAlive = competitorUrl ? validation.get(competitorUrl)?.alive === true : false;
+  const citation = scoreClientCitation({
+    text: input.result.rawText,
+    identity: {
+      storeName: input.store.name,
+      domain: input.store.domain,
+      productUrl: input.sku.url,
+      productName: input.sku.shopify_data.name,
+    },
+    resolved: await resolveDiagnosticGrounding(input.result),
+    llmClaimedCited: input.result.structured.cliente_foi_citado,
+  });
+  const resolved = citation.resolved;
+  return {
+    raw_text: input.result.rawText,
+    structured: {
+      ...input.result.structured,
+      cliente_foi_citado: citation.cited,
+      concorrente_citado_url: competitorAlive ? competitorUrl : null,
+    },
+    grounding_urls: input.result.groundingUrls,
+    dead_urls: competitorUrl && !competitorAlive ? [competitorUrl] : [],
+    model: input.result.model,
+    mocked: input.result.mocked,
+    provider: input.provider,
+    citation,
+    grounding_supports: bindGroundingSupports(input.result.groundingSupports, resolved),
+    measured_at: input.measuredAt,
+    ...(input.followUp ? { follow_up: true as const, follow_up_query: input.followUp.query } : {}),
+  };
+}
+
+async function diagnoseOrSkip(input: {
+  client: LlmClient;
+  query: string;
+  store: StoreRow;
+  sku: DiagnosticSkuRow;
+  temperature: number;
+}): Promise<LlmStructuredDiagnosticResult | null> {
+  if (!input.client.diagnoseQuery) return null;
+  try {
+    const result = await input.client.diagnoseQuery({
+      query: input.query,
+      storeName: input.store.name,
+      domain: input.store.domain,
+      productUrl: input.sku.url,
+      productName: input.sku.shopify_data.name,
+      productAttributes: input.sku.shopify_data.attributes,
+      temperature: input.temperature,
+    });
+    if (!isUsableShopperEvidence(result)) return null;
+    return result;
+  } catch (error) {
+    if (error instanceof Error && error.message === SHOPPER_EVIDENCE_MISSING) return null;
+    throw error;
+  }
+}
+
 async function executeQuery(input: {
   store: StoreRow;
   sku: DiagnosticSkuRow;
@@ -162,8 +244,19 @@ async function executeQuery(input: {
   config: DiagnosticRunConfig;
   dayPhotos: DayPhotoIndex;
 }): Promise<Omit<DiagnosticQueryRow, "id" | "created_at">> {
+  const enabled = enabledDiagnosticClients(input.llm);
+  if (enabled.length === 0) {
+    throw new Error("Diagnostic LLM client is not configured");
+  }
+
   const existing = lookupDayPhotoPair(input.dayPhotos, input.sku.url, input.prompt.prompt_text);
-  if (existing) {
+  if (
+    existing &&
+    queryCoversProviders(
+      existing.source,
+      enabled.map((row) => row.provider),
+    )
+  ) {
     return copyDayPhotoQuery({
       source: existing.source,
       jobId: input.sku.job_id,
@@ -173,62 +266,60 @@ async function executeQuery(input: {
     });
   }
 
-  if (!input.llm.gemini.diagnoseQuery) {
-    throw new Error("Gemini diagnostic client is not configured");
-  }
-
   const executions: QueryExecutionRecord[] = [];
   const measuredAt = new Date().toISOString();
+  const existingExecutions = (existing?.source.executions ??
+    []) as unknown as QueryExecutionRecord[];
 
-  for (let i = 0; i < input.config.executionsPerQuery; i++) {
-    const result: LlmStructuredDiagnosticResult = await input.llm.gemini.diagnoseQuery({
-      query: input.prompt.prompt_text,
-      storeName: input.store.name,
-      domain: input.store.domain,
-      productUrl: input.sku.url,
-      productName: input.sku.shopify_data.name,
-      productAttributes: input.sku.shopify_data.attributes,
-      temperature: input.config.geminiTemperature,
-    });
+  for (const { provider, client } of enabled) {
+    const reused = existingExecutions.filter(
+      (execution) =>
+        execution.follow_up !== true &&
+        shopperEvidenceProvider(execution) === provider &&
+        isUsableShopperEvidence(execution),
+    );
+    if (reused.length > 0 && existing) {
+      executions.push(
+        ...stampMeasuredAt(
+          reused,
+          queryMeasuredAt(existing.source),
+          queryFromQueryId(existing.source) ?? existing.source.id,
+        ),
+      );
+      continue;
+    }
 
-    const competitorUrl = result.structured.concorrente_citado_url;
-    const validation = competitorUrl ? await filterAliveUrls([competitorUrl]) : new Map();
-    const competitorAlive = competitorUrl ? validation.get(competitorUrl)?.alive === true : false;
-    const deadUrls = competitorUrl && !competitorAlive ? [competitorUrl] : [];
-    const resolved = await resolveDiagnosticGrounding(result);
-    const citation = scoreClientCitation({
-      text: result.rawText,
-      identity: {
-        storeName: input.store.name,
-        domain: input.store.domain,
-        productUrl: input.sku.url,
-        productName: input.sku.shopify_data.name,
-      },
-      resolved,
-      llmClaimedCited: result.structured.cliente_foi_citado,
-    });
-
-    executions.push({
-      raw_text: result.rawText,
-      structured: {
-        ...result.structured,
-        cliente_foi_citado: citation.cited,
-        concorrente_citado_url: competitorAlive ? competitorUrl : null,
-      },
-      grounding_urls: result.groundingUrls,
-      dead_urls: deadUrls,
-      model: result.model,
-      mocked: result.mocked,
-      citation,
-      grounding_supports: bindGroundingSupports(result.groundingSupports, resolved),
-      measured_at: measuredAt,
-    });
+    for (let i = 0; i < input.config.executionsPerQuery; i++) {
+      const result = await diagnoseOrSkip({
+        client,
+        query: input.prompt.prompt_text,
+        store: input.store,
+        sku: input.sku,
+        temperature: input.config.geminiTemperature,
+      });
+      if (!result) continue;
+      executions.push(
+        await recordDiagnoseExecution({
+          provider,
+          result,
+          store: input.store,
+          sku: input.sku,
+          measuredAt,
+        }),
+      );
+    }
   }
 
-  const first = executions[0];
+  const first = executions.find((execution) => execution.follow_up !== true);
+  if (!first) {
+    throw new Error(SHOPPER_EVIDENCE_MISSING);
+  }
+
+  const followClient =
+    enabled.find((row) => row.provider === shopperEvidenceProvider(first))?.client ??
+    enabled[0]?.client;
   if (
-    first &&
-    input.llm.gemini.diagnoseQuery &&
+    followClient &&
     brandMentionedWithoutBuyLink({
       text: first.raw_text,
       storeName: input.store.name,
@@ -243,50 +334,34 @@ async function executeQuery(input: {
         msg: "client_site_follow_up",
         query: input.prompt.prompt_text,
         store: input.store.name,
+        provider: shopperEvidenceProvider(first),
       }),
     );
-    const follow = await input.llm.gemini.diagnoseQuery({
+    const follow = await diagnoseOrSkip({
+      client: followClient,
       query: plan.query,
-      storeName: input.store.name,
-      domain: input.store.domain,
-      productUrl: input.sku.url,
-      productName: input.sku.shopify_data.name,
-      productAttributes: input.sku.shopify_data.attributes,
+      store: input.store,
+      sku: input.sku,
       temperature: input.config.geminiTemperature,
     });
-    if (!follow.mocked && follow.rawText.trim()) {
-      const followResolved = await resolveDiagnosticGrounding(follow);
-      const followCitation = scoreClientCitation({
-        text: follow.rawText,
-        identity: {
-          storeName: input.store.name,
-          domain: input.store.domain,
-          productUrl: input.sku.url,
-          productName: input.sku.shopify_data.name,
-        },
-        resolved: followResolved,
-        llmClaimedCited: follow.structured.cliente_foi_citado,
-      });
-      executions.push({
-        raw_text: follow.rawText,
-        structured: {
-          ...follow.structured,
-          cliente_foi_citado: followCitation.cited,
-        },
-        grounding_urls: follow.groundingUrls,
-        dead_urls: [],
-        model: follow.model,
-        mocked: follow.mocked,
-        citation: followCitation,
-        grounding_supports: bindGroundingSupports(follow.groundingSupports, followResolved),
-        follow_up: true,
-        follow_up_query: plan.query,
-        measured_at: measuredAt,
-      });
+    if (follow) {
+      executions.push(
+        await recordDiagnoseExecution({
+          provider: shopperEvidenceProvider(first),
+          result: follow,
+          store: input.store,
+          sku: input.sku,
+          measuredAt,
+          followUp: { query: plan.query },
+        }),
+      );
     }
   }
 
   const primaryExecutions = executions.filter((execution) => !execution.follow_up);
+  const geminiPrimary = primaryExecutions.filter(
+    (execution) => shopperEvidenceProvider(execution) === "gemini",
+  );
   const citedCount = executions.filter(
     (execution) => execution.structured.cliente_foi_citado,
   ).length;
@@ -320,7 +395,9 @@ async function executeQuery(input: {
     sku_id: input.sku.id,
     prompt_id: input.prompt.id,
     query_text: input.prompt.prompt_text,
-    gemini_raw: primaryExecutions.map((execution) => execution.raw_text).join("\n\n---\n\n"),
+    gemini_raw: (geminiPrimary.length > 0 ? geminiPrimary : primaryExecutions)
+      .map((execution) => execution.raw_text)
+      .join("\n\n---\n\n"),
     gemini_structured: hydrateGeminiStructured({
       cliente_foi_citado: clientCited,
       concorrente_citado_nome: competitorName,
@@ -356,7 +433,9 @@ async function completeCitedOffers(input: {
   llm: LlmClients;
   config: DiagnosticRunConfig;
 }): Promise<{ drafts: QueryDraft[]; followUps: number }> {
-  if (!input.llm.gemini.diagnoseQuery) return { drafts: input.drafts, followUps: 0 };
+  const enabled = enabledDiagnosticClients(input.llm);
+  const primary = enabled[0];
+  if (!primary?.client.diagnoseQuery) return { drafts: input.drafts, followUps: 0 };
   let followUps = 0;
   const bySku = new Map<string, QueryDraft[]>();
   for (const draft of input.drafts) {
@@ -383,17 +462,15 @@ async function completeCitedOffers(input: {
     const plan = planCitedOfferFollowUp(crown);
     if (!plan) continue;
 
-    const result: LlmStructuredDiagnosticResult = await input.llm.gemini.diagnoseQuery({
+    const result = await diagnoseOrSkip({
+      client: primary.client,
       query: plan.query,
-      storeName: input.store.name,
-      domain: input.store.domain,
-      productUrl: sku.row.url,
-      productName: sku.row.shopify_data.name,
-      productAttributes: sku.row.shopify_data.attributes,
+      store: input.store,
+      sku: sku.row,
       temperature: input.config.geminiTemperature,
     });
     const last = skuDrafts[skuDrafts.length - 1];
-    if (!last || isDayPhotoCopy(last)) continue;
+    if (!last || isDayPhotoCopy(last) || !result) continue;
     const existing = citedObjectsFromStructured(last.gemini_structured);
     const incoming = citedObjectsFromStructured(result.structured);
     last.gemini_structured = hydrateGeminiStructured({
@@ -420,6 +497,7 @@ async function completeCitedOffers(input: {
       dead_urls: [],
       model: result.model,
       mocked: result.mocked,
+      provider: primary.provider,
       citation,
       grounding_supports: bindGroundingSupports(result.groundingSupports, resolved),
       follow_up: true,

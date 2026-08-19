@@ -2,6 +2,7 @@ import { Queue, Worker } from "bullmq";
 
 import type { AppConfig } from "../config.js";
 import { createLlmClients } from "../lib/llm/index.js";
+import type { LlmClients } from "../lib/llm/types.js";
 import type { VisibilityRepositories } from "../repositories/index.js";
 import {
   type DominantDiagnosticJobPayload,
@@ -30,8 +31,9 @@ function redisConnectionOptions(redisUrl: string) {
 export function createInProcessDiagnosticQueue(input: {
   repos: VisibilityRepositories;
   config: AppConfig;
+  llm?: LlmClients;
 }): DiagnosticQueue {
-  const llm = createLlmClients(input.config);
+  const llm = input.llm ?? createLlmClients(input.config);
 
   return {
     async enqueue(payload) {
@@ -82,6 +84,7 @@ export function createBullDiagnosticQueue(config: AppConfig): DiagnosticQueue {
 export function createDiagnosticQueue(input: {
   repos: VisibilityRepositories;
   config: AppConfig;
+  llm?: LlmClients;
 }): DiagnosticQueue {
   if (input.config.redisUrl) {
     return createBullDiagnosticQueue(input.config);

@@ -5,10 +5,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { buildApp } from "../src/app.js";
 import { loadConfig } from "../src/config.js";
+import { emptyGeminiStructured } from "../src/lib/llm/gemini-structured.js";
+import { SHOPPER_EVIDENCE_MISSING } from "../src/lib/llm/shopper-evidence.js";
 import { authHeaders } from "../src/lib/request.js";
 import { computeTriage } from "../src/services/diagnostic-triage.js";
 import type { GeminiStructuredOutput } from "../src/services/diagnostic-types.js";
 import { selectDominantSku } from "../src/services/dominant-diagnostic-runner.js";
+import { liveLlm, stubLlmClient } from "./helpers/live-llm.js";
 import { createMemoryRepositories } from "./helpers/memory-repositories.js";
 
 const TEST_API_KEY = "test-visibility-api-key";
@@ -101,7 +104,10 @@ describe("dominant diagnostics API", () => {
       vi.fn(async () => new Response("", { status: 200 })),
     );
 
-    const app = await buildApp(testConfig(), { repositories: createMemoryRepositories() });
+    const app = await buildApp(testConfig(), {
+      repositories: createMemoryRepositories(),
+      llm: liveLlm(),
+    });
     await seedStore(app);
 
     const run = await app.inject({
@@ -133,6 +139,7 @@ describe("dominant diagnostics API", () => {
     expect(diagnostic.json().queries[0].confianca).toContain("0 de 3");
     expect(diagnostic.json().queries[0].cliente_foi_citado).toBe(false);
     expect(diagnostic.json().queries[0].executions[0].citation.prompt).toBe("blind_shopper");
+    expect(diagnostic.json().queries[0].executions[0].provider).toBe("gemini");
     expect(diagnostic.json().queries[0].executions[0].citation.cited).toBe(false);
     expect(
       diagnostic.json().financial_risk.map((row: { formula_type: string }) => row.formula_type),
@@ -163,7 +170,10 @@ describe("dominant diagnostics API", () => {
       ),
     );
 
-    const app = await buildApp(testConfig(), { repositories: createMemoryRepositories() });
+    const app = await buildApp(testConfig(), {
+      repositories: createMemoryRepositories(),
+      llm: liveLlm(),
+    });
     await seedStore(app);
 
     const run = await app.inject({
@@ -192,6 +202,80 @@ describe("dominant diagnostics API", () => {
     expect(
       diagnostic.json().financial_risk.map((row: { formula_type: string }) => row.formula_type),
     ).toContain("lacuna_ai_floor");
+  });
+
+  it("fails the job when no enabled provider returns shopper text", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("", { status: 200 })),
+    );
+    const app = await buildApp(testConfig(), {
+      repositories: createMemoryRepositories(),
+      llm: liveLlm({
+        gemini: stubLlmClient(async () => ({
+          rawText: "",
+          structured: emptyGeminiStructured(),
+          model: "mock",
+          mocked: true,
+          usedWebSearch: false,
+          groundingUrls: [],
+          calls: [],
+        })),
+      }),
+    });
+    await seedStore(app);
+    const run = await app.inject({
+      method: "POST",
+      url: `/v1/diagnostics/run?workspace_id=${WORKSPACE_ID}`,
+      headers: authHeaders(TEST_API_KEY),
+      payload: { plan: "essential" },
+    });
+    const job = await waitForStatus(app, run.json().job_id, "failed");
+    expect(job.error_message).toBe(SHOPPER_EVIDENCE_MISSING);
+  });
+
+  it("calls an optional second diagnostic client in the same job", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("", { status: 200 })),
+    );
+    const chatgptQueries: string[] = [];
+    const app = await buildApp(testConfig(), {
+      repositories: createMemoryRepositories(),
+      llm: liveLlm({
+        chatgpt: stubLlmClient(async (input) => {
+          chatgptQueries.push(input.query);
+          return {
+            rawText: `ChatGPT: ${input.query}`,
+            structured: emptyGeminiStructured(),
+            model: "gpt-test",
+            mocked: false,
+            usedWebSearch: true,
+            groundingUrls: ["https://chat.openai.com"],
+            calls: [],
+          };
+        }),
+      }),
+    });
+    await seedStore(app);
+    const run = await app.inject({
+      method: "POST",
+      url: `/v1/diagnostics/run?workspace_id=${WORKSPACE_ID}`,
+      headers: authHeaders(TEST_API_KEY),
+      payload: { plan: "essential" },
+    });
+    await waitForStatus(app, run.json().job_id, "completed");
+    const diagnostic = await app.inject({
+      method: "GET",
+      url: `/v1/diagnostics/${run.json().job_id}?workspace_id=${WORKSPACE_ID}`,
+      headers: authHeaders(TEST_API_KEY),
+    });
+    const providers = diagnostic
+      .json()
+      .queries[0].executions.map((row: { provider?: string }) => row.provider);
+    expect(chatgptQueries.length).toBeGreaterThan(0);
+    expect(providers).toContain("gemini");
+    expect(providers).toContain("chatgpt");
   });
 });
 
