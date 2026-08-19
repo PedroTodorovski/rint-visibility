@@ -14,6 +14,12 @@
 
 ---
 
+## URL do SKU (porta — antes do probe)
+
+A loja (`identity.domain`) nasce do host da URL que o fundador colou. Por isso o wizard e o `isLikelyPdpUrl` recusam home, vídeo, notícia, blog e coleção **antes** de chamar o Gemini: senão o YouTube vira a loja. Mesma regra no admin (`rint-app` `src/lib/ui/product-url.ts`) e no engine. Comparação de string; sem GET. Não exige `/products/` (VTEX `/slug/p`, Nuvemshop `/produtos/`, slug na raiz). Mercado Livre e Amazon passam. Listas vivem no código — não copiar aqui.
+
+Isto **não** é a secção de validação de URL mais abaixo. Lá a gente olha os **links que a IA citou depois da resposta** (vitrine vs blog; link morto).
+
 ## Pipeline
 
 1. Enviar cluster de prompts de comprador (5–10 por store)
@@ -27,7 +33,9 @@
 
 ---
 
-## Validação de URL
+## Validação de URL (citações, depois da resposta)
+
+Não confundir com a porta da URL do SKU acima. Aqui o job já rodou; o alvo é cada link no grounding.
 
 1. Extrair URL de grounding metadata
 2. Verificar HTTP status (2xx/3xx) com timeout
@@ -81,7 +89,9 @@ Manter tabela de `why_code` para accordion de evidência (foundation trust-layer
 - Derivados: `lacuna_snapshots` (slice futuro)
 - `diagnostic_queries.gemini_structured` — JSON do segundo passe, incluindo `objetos_citados[]`
 
-`objetos_citados` é um **derivado do probe**: um perfil por produto/loja nomeado na resposta citada ou no grounding (preço, dimensões, qualidade, prazo, avaliação, atributos). Campo `null` / `[]` se a IA não disse. Não inventar. Não buscar PDP de concorrente. Não é sync de catálogo. Google Trends permanece `phase_2` e não entra nesse array. Completar o array com 1 follow-up do motor está parked — [CITED-OBJECT-COMPLETION.md](../../rint-app/docs/CITED-OBJECT-COMPLETION.md).
+`objetos_citados` é um **derivado do probe**: um perfil por produto/loja nomeado na resposta citada ou no grounding (preço, dimensões, qualidade, prazo, avaliação, `imagem_url`, atributos). Campo `null` / `[]` se a IA não disse. Não inventar. Não é sync de catálogo. Google Trends permanece `phase_2` e não entra nesse array.
+
+Foto do SKU coroado: GET pontual das URLs que o Gemini **já nomeou** (URL do produto citado + até 2 hosts de grounding). Camadas: `imagem_url` do JSON → JSON-LD `Product.image` → `og:image` → `twitter:image` → foto na página de grounding. Persiste **só a URL**. Não pede foto ao modelo. Não guarda HTML. Não é um catálogo de concorrente. Completar o array com 1 follow-up do motor está parked — [CITED-OBJECT-COMPLETION.md](../../rint-app/docs/CITED-OBJECT-COMPLETION.md).
 
 Sem replicar respostas completas do LLM além do necessário para evidência e auditoria.
 

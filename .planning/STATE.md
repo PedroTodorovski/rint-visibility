@@ -14,10 +14,10 @@ progress:
 
 - **Phase:** 1 — MVP 2026 (lacuna de receita)
 - **Branch:** `fix/empty-shopper-evidence`
-- **Shipped this slice:** Prova vazia falha fechado — contrato multi-provedor; adapter Gemini `thinkingBudget: 0` + teto 8192; foto do dia não reusa evidência oca. Sem migration.
-- **Already on main:** Foto do dia. Follow-up de compra só se o **storefront** falta. `objetos_citados`. `first_action` / `content_brief` em `track_llm`. GA4: `sessoesAi` + top-K `sessoesAiLandings` (#31).
-- **In flight:** `fix/empty-shopper-evidence` — engine only; rint-app não muda.
-- **Next:** Merge → redeploy Railway API **e** worker; novo diagnóstico (não reusar job oco). ChatGPT/Perplexity HTTP fora.
+- **Shipped this slice:** Product URL gate — `isLikelyPdpUrl` recusa YouTube / notícia / home / blog / coleção (mesmo denylist do admin). Sem GET. Sem `/products/` obrigatório.
+- **Already on main:** Prova vazia falha fechado. Foto do dia. Follow-up de compra só se o **storefront** falta. `objetos_citados`. `first_action` / `content_brief` em `track_llm`. GA4: `sessoesAi` + top-K `sessoesAiLandings` (#31).
+- **In flight:** Product URL gate (keep in sync with rint-app `product-url.ts`).
+- **Next:** Reviewer verify.
 
 ## Repo boundaries
 
@@ -28,6 +28,7 @@ progress:
 
 ## Decisions Log
 
+- 2026-08-19: **Porta da URL do produto** — `isLikelyPdpUrl` alinha host+path com rint-app `product-url.ts`. YouTube / notícia / home / blog não entram no Gemini. A loja nasce desse host. Sem GET. VTEX `/p` e slug na raiz passam. Citações da IA (link morto) são outra etapa.
 - 2026-08-19: **Prova vazia falha fechado** — execução de provedor habilitado tem texto de comprador visível ou é falha. Quirk Gemini (`thinkingBudget: 0`, teto 8192, parts visíveis) fica no adapter. Foto do dia não reusa oco. ChatGPT/Perplexity no mesmo job depois; sem HTTP neste slice.
 - 2026-08-18: **Foto do dia** — par produto+pergunta carimbado no fuso `America/Sao_Paulo`. Mesmo teste no mesmo dia reusa o diagnóstico; pergunta diferente copia o par existente e só o novo vai à web. Sem warehouse. Contrato: `rint-app/.planning/MVP-DEFINITION.md`.
 - 2026-08-18: GA4 AI-referral persiste `sessoesAi` e top-K `sessoesAiLandings` (path + sessions) no snapshot. Não é warehouse de pageview. Não escolhe `first_action` / `target_url`. Contrato: `rint-app/docs/architecture/DATA-MINIMALISM-CONTRACT.md`.

@@ -5,16 +5,67 @@ import type { ShopifyProductSnapshotPort } from "../ports/types.js";
 import type { ProductRow, PromptRow } from "../repositories/types.js";
 import type { DiagnosticRunConfig, ShopifyProductSnapshot } from "./diagnostic-types.js";
 
-const CATEGORY_PATH_RE =
-  /\/(collections?|categor(?:y|ia|ias)|departamento|search|pages?|blogs?)(\/|$)/i;
+/**
+ * Live product-URL gate — keep in sync with rint-app `src/lib/ui/product-url.ts`.
+ * String compare only. Do not require `/products/`. Do not deny Facebook/OLX
+ * or Mercado Livre / Amazon.
+ */
+const DENIED_PRODUCT_URL_HOSTS = [
+  "youtube.com",
+  "youtu.be",
+  "youtube-nocookie.com",
+  "tiktok.com",
+  "instagram.com",
+  "twitter.com",
+  "x.com",
+  "linkedin.com",
+  "pinterest.com",
+  "reddit.com",
+  "wikipedia.org",
+  "google.com",
+  "google.com.br",
+  "bing.com",
+  "duckduckgo.com",
+  "threads.net",
+  "snapchat.com",
+  "whatsapp.com",
+  "telegram.org",
+  "medium.com",
+  "tumblr.com",
+  "substack.com",
+  "g1.globo.com",
+  "uol.com.br",
+  "folha.uol.com.br",
+  "estadao.com.br",
+  "terra.com.br",
+  "bbc.com",
+  "cnn.com",
+] as const;
+
+/** Listing / editorial paths — not a PDP. Do not match VTEX trailing `/p`. */
+const DENIED_PRODUCT_URL_PATH_RE =
+  /\/(collections?|colec(?:ao|oes|cion|ciones)|categor(?:y|ia|ias)|departamento|search|busca|pages?|blogs?|noticias?|news|artigos?|cart|carrinho|checkout|account|conta|login)(\/|$)/i;
+
+function isDeniedProductUrlHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/^www\./, "");
+  return DENIED_PRODUCT_URL_HOSTS.some((suffix) => host === suffix || host.endsWith(`.${suffix}`));
+}
+
+function isDeniedProductUrlPath(pathname: string): boolean {
+  const path = pathname.replace(/\/+$/, "") || "/";
+  if (path === "/") return false;
+  if (/^\/(products|produtos|produto)$/i.test(path)) return true;
+  return DENIED_PRODUCT_URL_PATH_RE.test(path);
+}
 
 export function isLikelyPdpUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
-    const path = parsed.pathname.replace(/\/+$/, "");
     if (!["http:", "https:"].includes(parsed.protocol)) return false;
-    if (!path || path === "") return false;
-    if (CATEGORY_PATH_RE.test(path)) return false;
+    const path = parsed.pathname.replace(/\/+$/, "");
+    if (!path) return false;
+    if (isDeniedProductUrlHost(parsed.hostname)) return false;
+    if (isDeniedProductUrlPath(parsed.pathname)) return false;
     return path.split("/").filter(Boolean).length >= 1;
   } catch {
     return false;
@@ -122,7 +173,9 @@ export async function validateAndSnapshotSku(
   const errors: string[] = [];
 
   if (!isLikelyPdpUrl(product.url)) {
-    errors.push("URL precisa ser uma PDP; homepage, categoria, coleção ou busca não são aceitas");
+    throw validationError(
+      `Validação do SKU falhou para ${product.url}: URL precisa ser uma PDP; homepage, vídeo, blog, notícia, categoria, coleção ou busca não são aceitas`,
+    );
   }
 
   if (options.shopifyConnected) {
