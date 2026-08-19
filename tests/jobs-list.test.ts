@@ -154,4 +154,70 @@ describe("GET /v1/jobs", () => {
       providers: [],
     });
   });
+
+  it("fails a running job that has been in-flight longer than 15 minutes", async () => {
+    const repositories = createMemoryRepositories();
+    const app = await buildApp(testConfig(), { repositories });
+
+    await app.inject({
+      method: "PUT",
+      url: `/v1/stores?workspace_id=${WORKSPACE_ID}`,
+      headers: authHeaders(TEST_API_KEY),
+      payload: { name: "Acme Shop", domain: "acme.example" },
+    });
+
+    const store = await repositories.stores.requireByWorkspaceId(WORKSPACE_ID);
+    const job = await repositories.jobs.create({
+      store_id: store.id,
+      plan: "essential",
+    });
+    await repositories.jobs.updateStatus(job.id, "running", {
+      started_at: "2026-08-19T11:29:20.000Z",
+    });
+
+    const list = await app.inject({
+      method: "GET",
+      url: `/v1/jobs?workspace_id=${WORKSPACE_ID}`,
+      headers: authHeaders(TEST_API_KEY),
+    });
+    expect(list.statusCode).toBe(200);
+    const listed = list.json() as {
+      jobs: Array<{ id: string; status: string; error_message: string | null }>;
+    };
+    expect(listed.jobs[0]).toMatchObject({
+      id: job.id,
+      status: "failed",
+      error_message: "O diagnóstico parou antes de terminar. Tente de novo.",
+    });
+
+    const status = await app.inject({
+      method: "GET",
+      url: `/v1/jobs/${job.id}?workspace_id=${WORKSPACE_ID}`,
+      headers: authHeaders(TEST_API_KEY),
+    });
+    expect(status.statusCode).toBe(200);
+    expect(status.json()).toMatchObject({
+      job: { id: job.id, status: "failed" },
+    });
+  });
+
+  it("fails orphan in-flight jobs when the in-process API boots", async () => {
+    const repositories = createMemoryRepositories();
+    const store = await repositories.stores.upsert(WORKSPACE_ID, {
+      name: "Acme Shop",
+      domain: "acme.example",
+    });
+    const orphan = await repositories.jobs.create({
+      store_id: store.id,
+      plan: "essential",
+    });
+    await repositories.jobs.updateStatus(orphan.id, "running", {
+      started_at: new Date().toISOString(),
+    });
+
+    await buildApp(testConfig(), { repositories });
+    const afterBoot = await repositories.jobs.findById(orphan.id);
+    expect(afterBoot?.status).toBe("failed");
+    expect(afterBoot?.error_message).toBe("O diagnóstico parou antes de terminar. Tente de novo.");
+  });
 });

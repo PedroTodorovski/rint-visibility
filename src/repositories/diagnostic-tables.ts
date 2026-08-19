@@ -1,4 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+
+import { notFound } from "../lib/errors.js";
 import type {
   CoherenceLevel,
   DiagnosticJobStatus,
@@ -164,6 +166,31 @@ export class JobsRepository {
     return data as JobRow;
   }
 
+  async failIfInFlight(
+    id: string,
+    fields: { completed_at: string; error_message: string },
+  ): Promise<JobRow> {
+    const { data, error } = await this.db
+      .from("jobs")
+      .update({
+        status: "failed",
+        updated_at: new Date().toISOString(),
+        completed_at: fields.completed_at,
+        error_message: fields.error_message,
+      })
+      .eq("id", id)
+      .in("status", ["pending", "running"])
+      .select("*")
+      .maybeSingle();
+
+    if (error) throw mapPostgrestError(error, "Failed to fail in-flight diagnostic job");
+    if (data) return data as JobRow;
+
+    const current = await this.findById(id);
+    if (!current) throw notFound(`Job ${id} not found`);
+    return current;
+  }
+
   async findByIdForStore(storeId: string, jobId: string): Promise<JobRow | null> {
     const { data, error } = await this.db
       .from("jobs")
@@ -249,6 +276,17 @@ export class JobsRepository {
 
     if (error) throw mapPostgrestError(error, "Failed to count diagnostic jobs");
     return count ?? 0;
+  }
+
+  async listInFlight(): Promise<JobRow[]> {
+    const { data, error } = await this.db
+      .from("jobs")
+      .select("*")
+      .in("status", ["pending", "running"])
+      .order("created_at", { ascending: true });
+
+    if (error) throw mapPostgrestError(error, "Failed to list in-flight diagnostic jobs");
+    return (data ?? []) as JobRow[];
   }
 }
 

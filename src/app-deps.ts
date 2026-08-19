@@ -12,6 +12,7 @@ import { registerPromptRoutes } from "./routes/v1/prompts.js";
 import { registerResultRoutes } from "./routes/v1/results.js";
 import { registerScoreRoutes } from "./routes/v1/scores.js";
 import { registerStoreRoutes } from "./routes/v1/stores.js";
+import { failOrphanInFlightJobs } from "./services/diagnostic-job-stale.js";
 import { createDiagnosticQueue, type DiagnosticQueue } from "./services/diagnostic-queue.js";
 import type { PreviewGeminiProbeStore } from "./services/preview-gemini-probe.js";
 
@@ -91,6 +92,9 @@ export async function registerCrudRoutes(
   await registerProbeRunRoutes(app, repositories);
   const diagnosticQueue =
     deps.diagnosticQueue ?? createDiagnosticQueue({ repos: repositories, config, llm: deps.llm });
+  if (!config.redisUrl && !deps.diagnosticQueue) {
+    await failOrphanInFlightJobs(repositories.jobs);
+  }
   await registerDiagnosticsRoutes(app, repositories, config, diagnosticQueue);
   await registerScoreRoutes(app, repositories);
   await registerResultRoutes(app, repositories);
