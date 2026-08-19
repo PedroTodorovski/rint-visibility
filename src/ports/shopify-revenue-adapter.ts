@@ -14,6 +14,36 @@ export type ShopifyPortCredentials = {
   adminApiVersion?: string;
 };
 
+/** Shopify Admin rejects anonymous clients. Same contract as rint-app. */
+export const SHOPIFY_ADMIN_USER_AGENT = "RintVisibility/1.0 (+https://rint.io)";
+
+function shopifyAdminHeaders(accessToken: string): Record<string, string> {
+  return {
+    Accept: "application/json",
+    "Content-Type": "application/json",
+    "User-Agent": SHOPIFY_ADMIN_USER_AGENT,
+    "X-Shopify-Access-Token": accessToken,
+  };
+}
+
+/** Shopify sometimes returns `errors` as a string, not `{ message }[]`. */
+export function shopifyGraphqlErrorMessage(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") return null;
+  const errors = (payload as { errors?: unknown }).errors;
+  if (typeof errors === "string") {
+    const trimmed = errors.trim();
+    return trimmed || null;
+  }
+  if (!Array.isArray(errors)) return null;
+  for (const item of errors) {
+    if (typeof item === "string" && item.trim()) return item.trim();
+    if (!item || typeof item !== "object") continue;
+    const message = (item as { message?: unknown }).message;
+    if (typeof message === "string" && message.trim()) return message.trim();
+  }
+  return null;
+}
+
 type ShopifyOrdersResponse = {
   data?: {
     orders?: {
@@ -151,11 +181,7 @@ export function createShopifyRevenuePort(
           `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`,
           {
             method: "POST",
-            headers: {
-              Accept: "application/json",
-              "Content-Type": "application/json",
-              "X-Shopify-Access-Token": credentials.accessToken,
-            },
+            headers: shopifyAdminHeaders(credentials.accessToken),
             body: JSON.stringify({
               query: `#graphql
               query RintSkuOrders($query: String!, $first: Int!, $after: String) {
@@ -185,8 +211,9 @@ export function createShopifyRevenuePort(
         );
 
         const payload = (await response.json()) as ShopifyOrdersResponse;
-        if (!response.ok || payload.errors?.length) {
-          throw new Error(payload.errors?.[0]?.message ?? "shopify_orders_query_failed");
+        const graphqlError = shopifyGraphqlErrorMessage(payload);
+        if (!response.ok || graphqlError) {
+          throw new Error(graphqlError ?? `shopify_orders_query_failed:${response.status}`);
         }
 
         const orders = payload.data?.orders;
@@ -228,7 +255,6 @@ const PRODUCT_SNAPSHOT_FIELDS = `
                 productType
                 descriptionHtml
                 onlineStoreUrl
-                totalInventory
                 featuredImage { url altText }
                 priceRangeV2 { minVariantPrice { amount currencyCode } }
                 options { name values }
@@ -240,7 +266,6 @@ const PRODUCT_SNAPSHOT_FIELDS = `
                     node {
                       id
                       title
-                      inventoryQuantity
                       price
                       selectedOptions { name value }
                     }
@@ -351,22 +376,20 @@ export function createShopifyProductSnapshotPort(
         `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`,
         {
           method: "POST",
-          headers: {
-            Accept: "application/json",
-            "Content-Type": "application/json",
-            "X-Shopify-Access-Token": credentials.accessToken,
-          },
+          headers: shopifyAdminHeaders(credentials.accessToken),
           body: JSON.stringify({ query, variables }),
         },
       );
 
       const payload = (await response.json()) as ShopifyProductResponse;
-      if (!response.ok || payload.errors?.length) {
-        throw new Error(payload.errors?.[0]?.message ?? "shopify_product_query_failed");
-      }
-
       const product = payload.data?.product ?? payload.data?.productByHandle ?? null;
-      if (!product?.id || !product.title) return null;
+      if (!product?.id || !product.title) {
+        const graphqlError = shopifyGraphqlErrorMessage(payload);
+        if (!response.ok || graphqlError) {
+          throw new Error(graphqlError ?? `shopify_product_query_failed:${response.status}`);
+        }
+        return null;
+      }
 
       const attributes = productAttributes(product);
       const image = product.featuredImage?.url?.trim() || null;
