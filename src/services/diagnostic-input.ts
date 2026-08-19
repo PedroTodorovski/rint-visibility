@@ -89,6 +89,13 @@ function displayNameFromUrl(url: string): string {
   }
 }
 
+function shopifyAdminReadError(detail: string): string {
+  if (/invalid api key|unrecognized login|wrong password|unauthorized|\b401\b/i.test(detail)) {
+    return "Token da Shopify inválido ou expirado. Reconecte a loja em Integrações";
+  }
+  return `Shopify Admin API não devolveu o produto (${detail})`;
+}
+
 function publicUrlUnreadable(fetched: {
   blocked: boolean;
   storefrontAccess: string;
@@ -120,12 +127,23 @@ export async function validateAndSnapshotSku(
       errors.push(`URL não respondeu com status ativo (${fetched.status ?? "sem resposta"})`);
     }
 
-    const snapshot = await shopifyProduct.getProductSnapshot({
-      ref: product.external_ref,
-      url: product.url,
-    });
+    let snapshot: ShopifyProductSnapshot | null = null;
+    let adminQueryFailed = false;
+    try {
+      snapshot = await shopifyProduct.getProductSnapshot({
+        ref: product.external_ref,
+        url: product.url,
+      });
+    } catch (error) {
+      adminQueryFailed = true;
+      const detail =
+        error instanceof Error && error.message.trim()
+          ? error.message.trim()
+          : "shopify_product_query_failed";
+      errors.push(shopifyAdminReadError(detail));
+    }
 
-    if (!snapshot) {
+    if (!snapshot && !adminQueryFailed) {
       errors.push("Produto não encontrado na Shopify Admin API");
     }
 

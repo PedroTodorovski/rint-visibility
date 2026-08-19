@@ -5,6 +5,8 @@ import {
   createShopifyRevenuePort,
   extractShopifyProductHandle,
   normalizeShopifyProductRef,
+  SHOPIFY_ADMIN_USER_AGENT,
+  shopifyGraphqlErrorMessage,
 } from "../src/ports/shopify-revenue-adapter.js";
 
 describe("shopify-revenue-adapter", () => {
@@ -224,5 +226,68 @@ describe("shopify-revenue-adapter", () => {
 
     expect(snapshot?.attributes).toEqual(["snowboard"]);
     expect(snapshot?.brand).toBe("rint-test-store");
+  });
+
+  it("reads Shopify string errors instead of leaking shopify_product_query_failed", async () => {
+    expect(shopifyGraphqlErrorMessage({ errors: "Invalid API key or access token" })).toBe(
+      "Invalid API key or access token",
+    );
+    expect(
+      shopifyGraphqlErrorMessage({
+        errors: [{ message: "Access denied for inventoryQuantity field." }],
+      }),
+    ).toBe("Access denied for inventoryQuantity field.");
+
+    const fetchImpl = async (_url: string, init?: RequestInit) => {
+      const headers = (init?.headers ?? {}) as Record<string, string>;
+      expect(headers["User-Agent"]).toBe(SHOPIFY_ADMIN_USER_AGENT);
+      return new Response(JSON.stringify({ errors: "Invalid API key or access token" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      });
+    };
+
+    const port = createShopifyProductSnapshotPort(
+      { shopDomain: "rint-test-store.myshopify.com", accessToken: "shpat_test" },
+      fetchImpl as typeof fetch,
+    );
+
+    await expect(
+      port.getProductSnapshot({
+        ref: null,
+        url: "https://rint-test-store.myshopify.com/products/the-collection-snowboard-liquid",
+      }),
+    ).rejects.toThrow("Invalid API key or access token");
+  });
+
+  it("keeps a product snapshot when GraphQL returns the node plus field-level errors", async () => {
+    const fetchImpl = async () =>
+      new Response(
+        JSON.stringify({
+          errors: [{ message: "Access denied for inventoryQuantity field." }],
+          data: {
+            productByHandle: {
+              id: "gid://shopify/Product/9",
+              title: "The Collection Snowboard: Liquid",
+              priceRangeV2: { minVariantPrice: { amount: "749.95", currencyCode: "USD" } },
+              variants: { edges: [] },
+            },
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+
+    const port = createShopifyProductSnapshotPort(
+      { shopDomain: "rint-test-store.myshopify.com", accessToken: "shpat_test" },
+      fetchImpl as typeof fetch,
+    );
+
+    const snapshot = await port.getProductSnapshot({
+      ref: null,
+      url: "https://rint-test-store.myshopify.com/products/the-collection-snowboard-liquid",
+    });
+
+    expect(snapshot?.name).toBe("The Collection Snowboard: Liquid");
+    expect(snapshot?.currentPrice).toBe(749.95);
   });
 });
