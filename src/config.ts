@@ -81,4 +81,8 @@ export function assertRuntimeConfig(config: AppConfig): void {
   if (!config.redisUrl) {
     throw new Error("REDIS_URL is required when NODE_ENV=production");
   }
+
+  if (!config.geminiApiKey) {
+    throw new Error("GEMINI_API_KEY is required when NODE_ENV=production");
+  }
 }

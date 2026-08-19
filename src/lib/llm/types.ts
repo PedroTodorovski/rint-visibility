@@ -1,6 +1,9 @@
 import type { GeminiStructuredOutput } from "./gemini-structured.js";
 
-export type LlmProvider = "gemini";
+export const LLM_PROVIDER_IDS = ["gemini", "chatgpt", "perplexity"] as const;
+export type LlmProviderId = (typeof LLM_PROVIDER_IDS)[number];
+/** @deprecated Use LlmProviderId */
+export type LlmProvider = LlmProviderId;
 
 export type LlmProbeResult = {
   text: string;
@@ -57,4 +60,24 @@ export type LlmClient = {
 
 export type LlmClients = {
   gemini: LlmClient;
+  chatgpt?: LlmClient;
+  perplexity?: LlmClient;
 };
+
+export type EnabledDiagnosticClient = {
+  provider: LlmProviderId;
+  client: LlmClient;
+};
+
+export function enabledDiagnosticClients(llm: LlmClients): EnabledDiagnosticClient[] {
+  const out: EnabledDiagnosticClient[] = [];
+  for (const provider of LLM_PROVIDER_IDS) {
+    const client = llm[provider];
+    if (client?.diagnoseQuery) out.push({ provider, client });
+  }
+  return out;
+}
+
+export function isLlmProviderId(value: string | null | undefined): value is LlmProviderId {
+  return Boolean(value && (LLM_PROVIDER_IDS as readonly string[]).includes(value));
+}

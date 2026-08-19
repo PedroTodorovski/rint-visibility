@@ -132,6 +132,21 @@ describe("assertRuntimeConfig", () => {
     ).toThrow(/REDIS_URL is required/);
   });
 
+  it("throws in production when GEMINI_API_KEY is missing", () => {
+    expect(() =>
+      assertRuntimeConfig(
+        loadConfig({
+          NODE_ENV: "production",
+          VISIBILITY_API_KEY: "secret",
+          SUPABASE_URL: "https://example.supabase.co",
+          SUPABASE_SERVICE_ROLE_KEY: "service-role",
+          REDIS_URL: "redis://localhost:6379",
+          GEMINI_API_KEY: "",
+        }),
+      ),
+    ).toThrow(/GEMINI_API_KEY is required/);
+  });
+
   it("allows missing credentials outside production", () => {
     expect(() =>
       assertRuntimeConfig(loadConfig({ NODE_ENV: "development", VISIBILITY_API_KEY: "" })),

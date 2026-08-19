@@ -4,6 +4,7 @@ import type {
   SearchConsoleProperty,
 } from "../lib/citation-gold.js";
 import type { GeminiStructuredOutput } from "../lib/llm/gemini-structured.js";
+import type { LlmProviderId } from "../lib/llm/types.js";
 
 export type DiagnosticPlan = "essential" | "pro";
 
@@ -86,6 +87,7 @@ export type QueryExecutionRecord = {
   dead_urls: string[];
   model: string;
   mocked: boolean;
+  provider?: LlmProviderId;
   citation: ClientCitationEvidence;
   grounding_supports?: Array<{ text: string; hosts: string[]; hrefs: string[] }>;
   follow_up?: boolean;
