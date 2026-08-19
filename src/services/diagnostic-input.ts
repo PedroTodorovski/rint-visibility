@@ -39,6 +39,16 @@ export function assertRunLimits(
   }
 }
 
+/** Catalog leftovers stay in the store. A job only photographs SKUs with questions. */
+export function productsForDiagnosis(
+  products: ProductRow[],
+  promptsByProduct: Map<string, PromptRow[]>,
+): ProductRow[] {
+  return products
+    .filter((product) => (promptsByProduct.get(product.id)?.length ?? 0) > 0)
+    .sort((a, b) => a.position - b.position);
+}
+
 export function groupQueriesByProduct(
   products: ProductRow[],
   prompts: PromptRow[],
