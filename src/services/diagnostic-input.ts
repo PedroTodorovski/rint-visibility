@@ -90,7 +90,11 @@ function displayNameFromUrl(url: string): string {
 }
 
 function shopifyAdminReadError(detail: string): string {
-  if (/invalid api key|unrecognized login|wrong password|unauthorized|\b401\b/i.test(detail)) {
+  if (
+    /non-expiring access tokens|invalid api key|unrecognized login|wrong password|unauthorized|\b401\b/i.test(
+      detail,
+    )
+  ) {
     return "Token da Shopify inválido ou expirado. Reconecte a loja em Integrações";
   }
   return `Shopify Admin API não devolveu o produto (${detail})`;
