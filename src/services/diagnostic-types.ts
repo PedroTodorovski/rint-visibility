@@ -6,6 +6,13 @@ import type {
 import type { GeminiStructuredOutput } from "../lib/llm/gemini-structured.js";
 import type { LlmProviderId } from "../lib/llm/types.js";
 
+/**
+ * Probe depth — not a commercial plan name.
+ * `essential` is the MVP default (1 execution/query) for every founder plan.
+ * `pro` (3 executions) is reserved if billing lever B (depth) is chosen later.
+ * Quota of new diagnoses per period (lever A, preferred) lives in rint-app D1.
+ * See rint-app `docs/architecture/BILLING-CONTRACT.md`.
+ */
 export type DiagnosticPlan = "essential" | "pro";
 
 export type DiagnosticPhase = "mvp" | "phase_2" | "phase_3";
@@ -121,6 +128,7 @@ export function runConfigForPlan(
     phase,
     maxSkus: unlimited ? null : phase === "phase_2" ? 10 : options.maxSkus,
     maxQueriesPerSku: unlimited ? null : phase === "phase_2" ? 15 : options.maxQueriesPerSku,
+    // `pro` triples executions; commercial plans currently all send `essential`.
     executionsPerQuery: plan === "pro" ? 3 : 1,
     geminiTemperature: 0,
   };

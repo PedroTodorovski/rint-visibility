@@ -10,6 +10,7 @@
 
 - Usar `groundingChunks` e `groundingSupports` da resposta. Os índices de support pertencem **só** ao primeiro passe (texto do comprador) — não misturar com o JSON. A Prova grifa o `segment.text` e mostra o chip da fonte.
 - Não depender de multi-LLM legado no MVP 2026
+- `essential` / `pro` no job de diagnóstico é **profundidade do probe** (1 vs 3 execuções/query), não o plano comercial. O MVP manda sempre o padrão (`essential`). Cota de diagnósticos no período (alavanca A) vive no app. Contrato: [BILLING-CONTRACT.md](../../rint-app/docs/architecture/BILLING-CONTRACT.md).
 
 ---
 
