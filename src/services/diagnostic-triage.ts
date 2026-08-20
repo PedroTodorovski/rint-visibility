@@ -4,7 +4,8 @@
  *
  * Citation gap (0/N or 1–N-1/N) → track_llm. Same as the report (`diagnosisTrackForSku`).
  * Closed URL still wins first (track_pdp). Hard price/brand mismatch on the client object
- * is also track_llm.
+ * is also track_llm. `track_produto` needs a competitor (or store) object in
+ * `objetos_citados` — a name string without objects is not an offer to compare.
  */
 
 import { citedObjectsFromStructured, isCitedClientObject } from "../lib/llm/gemini-structured.js";
@@ -146,9 +147,21 @@ export function computeTriage(input: TriageInput): TriageOutcome {
   const citationTotal = input.queries.length;
   const citationClient = input.queries.filter((query) => query.cliente_foi_citado).length;
   const citationGap = citationTotal > 0 && citationClient < citationTotal;
-  const competitorCited = input.queries.some(
-    (query) => query.concorrente_citado_nome || query.concorrente_citado_url,
-  );
+  const competitorCited = input.queries.some((query) => {
+    const shopify = skuById.get(query.sku_id);
+    const client = shopify ? { name: shopify.name, brand: shopify.brand, url: shopify.url } : null;
+    const listed = Array.isArray(query.gemini_structured.objetos_citados)
+      ? query.gemini_structured.objetos_citados
+      : [];
+    return listed.some((object) => {
+      const named = Boolean(
+        object.produto?.trim() || object.marca?.trim() || object.loja?.trim() || object.url?.trim(),
+      );
+      if (!named) return false;
+      if (client && isCitedClientObject(object, client)) return false;
+      return true;
+    });
+  });
 
   let coherenceLevel: CoherenceLevel = "coerente";
   if (hardMismatch) coherenceLevel = "incoerente";

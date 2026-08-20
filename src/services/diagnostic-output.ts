@@ -1,6 +1,5 @@
 import { type ClassifiedBrandSurface, classifyBrandSurface } from "../lib/citation-gold.js";
-import { hostFromUrl } from "../lib/cited-offer.js";
-import { minCompetitorPrice } from "../lib/llm/gemini-structured.js";
+import { crownCompetitorSku, hostFromUrl, planCitedOfferFollowUp } from "../lib/cited-offer.js";
 import type {
   Ga4AiReferralRevenue,
   GoogleAdsSkuWaste,
@@ -25,6 +24,8 @@ import {
   formulateTrackLlmFirstAction,
   themeFromQuerySet,
 } from "./llm-out-first-action.js";
+import { formulateTrackProdutoFirstAction } from "./produto-out-first-action.js";
+import { judgeProductWeek } from "./produto-week-judge.js";
 import { aggregateCitationCounts, computeRevenueGap } from "./revenue-gap-engine.js";
 import {
   type SearchConsoleUrlMatch,
@@ -78,13 +79,17 @@ function withHeadline(
   skuName: string,
   queries: DiagnosticQueryRow[],
 ): DiagnosticOutput {
+  const first =
+    typeof output.diagnostic.next_steps.first_action === "string"
+      ? output.diagnostic.next_steps.first_action.trim()
+      : "";
   return {
     ...output,
     diagnostic: {
       ...output.diagnostic,
       next_steps: {
         ...output.diagnostic.next_steps,
-        headline: instantiatedHeadline(skuName, queries),
+        headline: first || instantiatedHeadline(skuName, queries),
         exempt: true,
       },
     },
@@ -331,6 +336,131 @@ function trackLlmNextSteps(
   };
 }
 
+function formatOfferPrice(amount: number | null, currency: string | null): string | null {
+  if (amount == null) return null;
+  if ((currency ?? "").toUpperCase() === "USD") return `US$ ${Math.round(amount)}`;
+  return `R$ ${Math.round(amount)}`;
+}
+
+function productSkipAttrs(snapshot: ShopifyProductSnapshot, said: string[]): string[] {
+  return said
+    .filter(
+      (attr) =>
+        !snapshot.attributes.some((item) =>
+          item.toLowerCase().includes(attr.toLowerCase().slice(0, 8)),
+        ),
+    )
+    .slice(0, 4);
+}
+
+const CATALOG_FACT_NEEDLES = {
+  shipping: ["prazo", "shipping", "frete", "entrega", "delivery"],
+  rating: ["avaliacao", "avaliação", "rating", "review", "reviews"],
+  dimensions: ["dimens", "scoop", "porcao", "porção", "serving", "dose", "gotas"],
+  quality: ["nsf", "anvisa", "certif", "selo", "vegan", "qualidade", "quality"],
+} as const;
+
+function catalogFactFromAttributes(
+  attributes: string[],
+  needles: readonly string[],
+): string | null {
+  for (const raw of attributes) {
+    const attribute = raw.trim();
+    if (!attribute) continue;
+    const sep = attribute.indexOf(":");
+    if (sep >= 0) {
+      const name = attribute.slice(0, sep).trim().toLowerCase();
+      const value = attribute.slice(sep + 1).trim();
+      if (value && needles.some((needle) => name.includes(needle))) return value;
+      continue;
+    }
+    const lower = attribute.toLowerCase();
+    if (needles.some((needle) => lower.includes(needle))) return attribute;
+  }
+  return null;
+}
+
+function trackProdutoNextSteps(snapshot: ShopifyProductSnapshot, queries: DiagnosticQueryRow[]) {
+  const client = { name: snapshot.name, brand: snapshot.brand, url: snapshot.url };
+  const crown = crownCompetitorSku({
+    objectsByQuery: queries.map((query) => query.gemini_structured.objetos_citados ?? []),
+    client,
+  });
+  const followup = planCitedOfferFollowUp(crown);
+  const skipAttrs = productSkipAttrs(snapshot, crown.atributos);
+  const crownedName = [crown.marca, crown.produto].filter(Boolean).join(" ") || null;
+  const storeHint = crown.confidence === "store_only" ? (crown.storeHints[0]?.loja ?? null) : null;
+  const priceClient = formatOfferPrice(snapshot.currentPrice, snapshot.currency);
+  const priceCrowned =
+    crown.confidence === "clear" ? formatOfferPrice(crown.preco, crown.moeda) : null;
+  const judgment = judgeProductWeek({
+    confidence: crown.confidence,
+    followupReason: followup?.reason ?? null,
+    priceClient: { amount: snapshot.currentPrice, currency: snapshot.currency, label: priceClient },
+    priceCrowned:
+      crown.confidence === "clear"
+        ? { amount: crown.preco, currency: crown.moeda, label: priceCrowned }
+        : null,
+    clientDose:
+      snapshot.dimension ??
+      catalogFactFromAttributes(snapshot.attributes, CATALOG_FACT_NEEDLES.dimensions),
+    crownedDose: crown.dimensoes,
+    ratingClient: catalogFactFromAttributes(snapshot.attributes, CATALOG_FACT_NEEDLES.rating),
+    ratingCrowned: crown.avaliacao,
+    shippingClient: catalogFactFromAttributes(snapshot.attributes, CATALOG_FACT_NEEDLES.shipping),
+    shippingCrowned: crown.prazo_entrega,
+    skipAttrs,
+    useAttrs: snapshot.attributes.slice(0, 2),
+    clientDimensions:
+      snapshot.dimension ??
+      catalogFactFromAttributes(snapshot.attributes, CATALOG_FACT_NEEDLES.dimensions),
+    crownedDimensions: crown.dimensoes,
+    clientQuality:
+      snapshot.material ??
+      catalogFactFromAttributes(snapshot.attributes, CATALOG_FACT_NEEDLES.quality),
+    crownedQuality: crown.qualidade,
+  });
+  const brief = formulateTrackProdutoFirstAction({
+    skuName: snapshot.name,
+    brand: snapshot.brand,
+    productUrl: snapshot.url,
+    confidence: crown.confidence,
+    crownedName: crown.confidence === "clear" ? crownedName : null,
+    crownedSeller: crown.seller,
+    storeHint,
+    priceClient,
+    priceCrowned,
+    useAttrs: snapshot.attributes.slice(0, 2),
+    skipAttrs,
+    followupReason: followup?.reason ?? null,
+    losingDimension: judgment.primaryDimension,
+    move: judgment.move,
+    contributions: judgment.contributions,
+  });
+  return {
+    owner: "consultor estratégico ou especialista em precificação",
+    first_action: brief.first_action,
+    support_line: brief.support_line,
+    product_brief: {
+      theme: brief.theme,
+      sku_name: brief.sku_name,
+      brand: brief.brand,
+      move: brief.move,
+      surface: brief.surface,
+      target_url: brief.target_url,
+      losing_dimension: brief.losing_dimension,
+      crowned_name: brief.crowned_name,
+      crowned_seller: brief.crowned_seller,
+      price_client: brief.price_client,
+      price_crowned: brief.price_crowned,
+      use_attrs: brief.use_attrs,
+      skip_attrs: brief.skip_attrs,
+      followup_reason: brief.followup_reason,
+      contributions: brief.contributions,
+    },
+  };
+}
+
 export function buildCitationFinancialRisks(
   input: CitationFinanceInput,
 ): CreateFinancialRiskInput[] {
@@ -558,16 +688,19 @@ export function buildDiagnosticOutput(input: DiagnosticOutputInput): DiagnosticO
   }
 
   if (input.track === "track_produto") {
+    const shopifyData = input.primarySku.shopify_data;
     const client = {
       name: shopifyData.name,
       brand: shopifyData.brand,
       url: shopifyData.url,
     };
-    const competitorPrices = input.queries
-      .map((query) => minCompetitorPrice(query.gemini_structured, client))
-      .filter((value): value is number => value != null && value > 0);
-    const competitorPrice = competitorPrices.length > 0 ? Math.min(...competitorPrices) : null;
-    const priceGap = competitorPrice ? shopifyData.currentPrice - competitorPrice : null;
+    const crown = crownCompetitorSku({
+      objectsByQuery: input.queries.map((query) => query.gemini_structured.objetos_citados ?? []),
+      client,
+    });
+    const competitorPrice = crown.confidence === "clear" ? crown.preco : null;
+    const priceGap = competitorPrice != null ? shopifyData.currentPrice - competitorPrice : null;
+    const metaRead = input.finance.meta.cac > 0 || input.finance.meta.spend > 0;
     return withHeadline(
       {
         risks: [
@@ -578,17 +711,17 @@ export function buildDiagnosticOutput(input: DiagnosticOutputInput): DiagnosticO
             gap_value: priceGap,
             lost_clients: null,
             compensation_cost:
-              input.finance.meta.cac > input.finance.shopify.ticketMedio
+              metaRead && input.finance.meta.cac > input.finance.shopify.ticketMedio
                 ? input.finance.meta.spend
                 : null,
             formula_type: "product_price_margin_risk",
             inputs: {
               client_price: shopifyData.currentPrice,
               competitor_price: competitorPrice,
-              cac_sku: input.finance.meta.cac,
+              cac_sku: metaRead ? input.finance.meta.cac : null,
               ticket_medio: input.finance.shopify.ticketMedio,
               margin_signal:
-                input.finance.meta.cac > input.finance.shopify.ticketMedio
+                metaRead && input.finance.meta.cac > input.finance.shopify.ticketMedio
                   ? "cac_gt_ticket"
                   : "not_detected",
             },
@@ -604,27 +737,18 @@ export function buildDiagnosticOutput(input: DiagnosticOutputInput): DiagnosticO
               client_price: shopifyData.currentPrice,
               competitor_price: competitorPrice,
             },
-            {
-              type: "margem_insuficiente",
-              cac_sku: input.finance.meta.cac,
-              ticket_medio: input.finance.shopify.ticketMedio,
-            },
-            {
-              type: "posicionamento_inadequado",
-              mvp_signal: "inferido pelo perfil de queries que não geraram citação",
-              phase_2: input.finance.trends ?? unavailable("google_trends"),
-            },
+            ...(metaRead
+              ? [
+                  {
+                    type: "margem_insuficiente",
+                    cac_sku: input.finance.meta.cac,
+                    ticket_medio: input.finance.shopify.ticketMedio,
+                  },
+                ]
+              : []),
           ],
-          actions: [
-            {
-              type: "founder_strategy",
-              text: "Decisão estratégica do fundador: reduzir preço, reformular produto ou mudar público.",
-            },
-          ],
-          next_steps: {
-            owner: "consultor estratégico ou especialista em precificação",
-            note: "O Rint entrega o número; o cliente decide.",
-          },
+          actions: [],
+          next_steps: trackProdutoNextSteps(shopifyData, input.queries),
           prazo: "médio a longo prazo",
         },
       },
