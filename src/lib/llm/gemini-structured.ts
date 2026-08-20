@@ -11,6 +11,7 @@ export type GeminiCitedObject = {
   qualidade: string | null;
   prazo_entrega: string | null;
   avaliacao: string | null;
+  imagem_url: string | null;
   atributos: string[];
 };
 
@@ -56,6 +57,7 @@ export function emptyCitedObject(): GeminiCitedObject {
     qualidade: null,
     prazo_entrega: null,
     avaliacao: null,
+    imagem_url: null,
     atributos: [],
   };
 }
@@ -114,6 +116,7 @@ function parseCitedObject(value: unknown): GeminiCitedObject | null {
     qualidade: stringOrNull(row.qualidade),
     prazo_entrega: stringOrNull(row.prazo_entrega),
     avaliacao: stringOrNull(row.avaliacao),
+    imagem_url: stringOrNull(row.imagem_url),
     atributos: stringArray(row.atributos),
   };
   const hasSignal =
@@ -126,6 +129,7 @@ function parseCitedObject(value: unknown): GeminiCitedObject | null {
     parsed.qualidade ||
     parsed.prazo_entrega ||
     parsed.avaliacao ||
+    parsed.imagem_url ||
     parsed.atributos.length > 0;
   return hasSignal ? parsed : null;
 }
@@ -179,6 +183,7 @@ function mergeObject(left: GeminiCitedObject, right: GeminiCitedObject): GeminiC
     qualidade: left.qualidade ?? right.qualidade,
     prazo_entrega: left.prazo_entrega ?? right.prazo_entrega,
     avaliacao: left.avaliacao ?? right.avaliacao,
+    imagem_url: left.imagem_url ?? right.imagem_url,
     atributos: [...new Set([...left.atributos, ...right.atributos])],
   };
 }
@@ -293,6 +298,7 @@ export const GEMINI_STRUCTURE_PROMPT_SHAPE = `{
       "qualidade": string | null,
       "prazo_entrega": string | null,
       "avaliacao": string | null,
+      "imagem_url": string | null,
       "atributos": string[]
     }
   ]

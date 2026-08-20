@@ -20,7 +20,11 @@ import type {
 import { publicStorefrontUnreadable } from "./diagnostic-triage.js";
 import type { DiagnosticTrack, ShopifyProductSnapshot } from "./diagnostic-types.js";
 import { buildTrackLlmSupportLine } from "./founder-action-copy.js";
-import { formulateTrackLlmFirstAction, themeFromQuerySet } from "./llm-out-first-action.js";
+import {
+  catalogFoundationFromFields,
+  formulateTrackLlmFirstAction,
+  themeFromQuerySet,
+} from "./llm-out-first-action.js";
 import { aggregateCitationCounts, computeRevenueGap } from "./revenue-gap-engine.js";
 import {
   type SearchConsoleUrlMatch,
@@ -33,6 +37,7 @@ export type DiagnosticOutputInput = {
   skus: DiagnosticSkuRow[];
   queries: DiagnosticQueryRow[];
   track: DiagnosticTrack;
+  coherenceLevel?: "coerente" | "parcialmente_coerente" | "incoerente";
   finance: {
     ga4: Ga4AiReferralRevenue;
     shopify: ShopifySkuRevenue;
@@ -207,11 +212,41 @@ function readReviewOrRivalStore(hosts: string[], clientUrl: string): boolean {
   });
 }
 
+function foldNeedle(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase()
+    .trim();
+}
+
+function queryAnswerBlob(query: DiagnosticQueryRow): string {
+  const executionTexts = query.executions
+    .map((execution) => (typeof execution.raw_text === "string" ? execution.raw_text : ""))
+    .join(" ");
+  return [query.gemini_raw ?? "", executionTexts].join(" ");
+}
+
+function answersNameClient(
+  queries: DiagnosticQueryRow[],
+  snapshot: ShopifyProductSnapshot,
+): boolean {
+  const needles = [snapshot.brand, snapshot.name]
+    .map((value) => foldNeedle(value ?? ""))
+    .filter((value) => value.length >= 3);
+  if (needles.length === 0) return false;
+  return queries.some((query) => {
+    const blob = foldNeedle(queryAnswerBlob(query));
+    return needles.some((needle) => blob.includes(needle));
+  });
+}
+
 function trackLlmNextSteps(
   snapshot: ShopifyProductSnapshot,
   queries: DiagnosticQueryRow[],
   absentAttributes: string[],
   seoGaps: DiagnosticOutputInput["finance"]["seoGaps"],
+  options: { incoherent?: boolean } = {},
 ) {
   const mentioned = mentionedAttrsFromQueries(queries);
   const skipAttrs = mentioned.filter(
@@ -229,6 +264,8 @@ function trackLlmNextSteps(
   const usesSearchConsoleTarget = !groundingOwnedContent && Boolean(searchConsoleCandidate);
   const readStorefront = surfaces.some((surface) => surface.kind === "owned_storefront");
   const readExternal = surfaces.some((surface) => surface.kind === "external_source");
+  const cited = queries.some((query) => query.cliente_foi_citado);
+  const sourcesWithoutStore = !cited && !readStorefront && answersNameClient(queries, snapshot);
   const brief = formulateTrackLlmFirstAction({
     skuName: snapshot.name,
     brand: snapshot.brand,
@@ -251,6 +288,13 @@ function trackLlmNextSteps(
       : searchConsoleCandidate
         ? "search_console"
         : null,
+    catalogGaps: catalogFoundationFromFields({
+      attributes: snapshot.attributes,
+      descriptionChars: snapshot.descriptionChars ?? snapshot.meta.admin?.descriptionChars,
+    }),
+    productUrl: snapshot.url,
+    incoherent: options.incoherent === true,
+    sourcesWithoutStore,
   });
   return {
     owner: "parceiro de conteúdo ou autoridade",
@@ -269,6 +313,10 @@ function trackLlmNextSteps(
       use_attrs: brief.use_attrs,
       skip_attrs: brief.skip_attrs,
       grounding_note: brief.grounding_note,
+      catalog_first: brief.catalog_first,
+      catalog_gaps: brief.catalog_gaps,
+      incoherent: brief.incoherent === true,
+      sourcesWithoutStore: brief.sourcesWithoutStore === true,
       search_console_match:
         usesSearchConsoleTarget && searchConsoleCandidate
           ? {
@@ -395,6 +443,7 @@ export function buildDiagnosticOutput(input: DiagnosticOutputInput): DiagnosticO
             input.queries,
             absentAttributes,
             input.finance.seoGaps,
+            { incoherent: input.coherenceLevel === "incoerente" },
           ),
           prazo:
             "variável — depende de frequência de indexação do Gemini e volume de conteúdo publicado",

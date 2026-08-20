@@ -367,7 +367,7 @@ describe("dominant triage", () => {
     };
   }
 
-  it("does not treat a cheaper cited competitor as LLM incoherence", () => {
+  it("does not treat a cheaper occupant as incoherence — 0/N is Content", () => {
     const outcome = computeTriage({
       skus: [{ id: "sku-1", shopify }],
       queries: [
@@ -391,6 +391,7 @@ describe("dominant triage", () => {
               qualidade: null,
               prazo_entrega: null,
               avaliacao: null,
+              imagem_url: null,
               atributos: [],
             },
           ],
@@ -399,7 +400,7 @@ describe("dominant triage", () => {
     });
 
     expect(outcome.coherenceLevel).toBe("coerente");
-    expect(outcome.track).toBe("track_produto");
+    expect(outcome.track).toBe("track_llm");
     expect(outcome.checks.one_dominant_track).toBe(true);
   });
 
@@ -496,6 +497,7 @@ describe("dominant triage", () => {
                 qualidade: null,
                 prazo_entrega: null,
                 avaliacao: null,
+                imagem_url: null,
                 atributos: [],
               },
             ],

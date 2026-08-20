@@ -13,11 +13,10 @@ progress:
 ## Current Position
 
 - **Phase:** 1 — MVP 2026 (lacuna de receita)
-- **Branch:** `fix/empty-shopper-evidence`
-- **Shipped this slice:** Product URL gate — `isLikelyPdpUrl` recusa YouTube / notícia / home / blog / coleção (mesmo denylist do admin). Sem GET. Sem `/products/` obrigatório.
-- **Already on main:** Prova vazia falha fechado. Foto do dia. Follow-up de compra só se o **storefront** falta. `objetos_citados`. `first_action` / `content_brief` em `track_llm`. GA4: `sessoesAi` + top-K `sessoesAiLandings` (#31).
-- **In flight:** Product URL gate (keep in sync with rint-app `product-url.ts`).
-- **Next:** Reviewer verify.
+- **Branch:** `feat/llm-diagnosis-recados`
+- **Shipped this slice:** 0/N e citação parcial → Conteúdo no job. `incoherent` e `sourcesWithoutStore` no `content_brief`. Cadastro primeiro continua.
+- **Already on main:** Porta da URL (`isLikelyPdpUrl`, #39). Prova vazia falha fechado. Foto do dia. Follow-up de compra só se o **storefront** falta. `objetos_citados`. `first_action` / `content_brief` em `track_llm`. GA4: `sessoesAi` + top-K `sessoesAiLandings` (#31).
+- **Next:** chips de Página (PDP) no admin.
 
 ## Repo boundaries
 
@@ -28,7 +27,7 @@ progress:
 
 ## Decisions Log
 
-- 2026-08-19: **Porta da URL do produto** — `isLikelyPdpUrl` alinha host+path com rint-app `product-url.ts`. YouTube / notícia / home / blog não entram no Gemini. A loja nasce desse host. Sem GET. VTEX `/p` e slug na raiz passam. Citações da IA (link morto) são outra etapa.
+- 2026-08-20: **0/N e parcial → Conteúdo no job** — `computeTriage` alinha com a tela. `incoherent` e `sourcesWithoutStore` entram no `content_brief`. Cadastro primeiro continua. Contrato: `rint-app/docs/DIAGNOSIS-DOMINANT.md`, `DIAGNOSIS-PREVIEW-SCENARIOS.md`.
 - 2026-08-19: **Prova vazia falha fechado** — execução de provedor habilitado tem texto de comprador visível ou é falha. Quirk Gemini (`thinkingBudget: 0`, teto 8192, parts visíveis) fica no adapter. Foto do dia não reusa oco. ChatGPT/Perplexity no mesmo job depois; sem HTTP neste slice.
 - 2026-08-18: **Foto do dia** — par produto+pergunta carimbado no fuso `America/Sao_Paulo`. Mesmo teste no mesmo dia reusa o diagnóstico; pergunta diferente copia o par existente e só o novo vai à web. Sem warehouse. Contrato: `rint-app/.planning/MVP-DEFINITION.md`.
 - 2026-08-18: GA4 AI-referral persiste `sessoesAi` e top-K `sessoesAiLandings` (path + sessions) no snapshot. Não é warehouse de pageview. Não escolhe `first_action` / `target_url`. Contrato: `rint-app/docs/architecture/DATA-MINIMALISM-CONTRACT.md`.

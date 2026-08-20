@@ -24,6 +24,9 @@ const ag1 = {
   moeda: "USD",
   prazo_entrega: "5 a 8 dias",
   avaliacao: "4.8",
+  dimensoes: "1 scoop por dia",
+  qualidade: "Certificação NSF",
+  imagem_url: "https://media.post.rvohealth.io/ag1.jpg",
   atributos: ["75 vitamins"],
 };
 
@@ -36,6 +39,9 @@ describe("cited offer crown", () => {
     expect(crown.confidence).toBe("clear");
     expect(crown.produto).toBe("AG1");
     expect(crown.seller).toBe("Athletic Greens");
+    expect(crown.dimensoes).toBe("1 scoop por dia");
+    expect(crown.qualidade).toBe("Certificação NSF");
+    expect(crown.imagem_url).toBe("https://media.post.rvohealth.io/ag1.jpg");
     expect(crown.persistedCount).toBe(3);
   });
 

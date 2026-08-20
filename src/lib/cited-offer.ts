@@ -11,6 +11,9 @@ export type CitedObjectLike = {
   moeda?: string | null;
   prazo_entrega?: string | null;
   avaliacao?: string | null;
+  dimensoes?: string | null;
+  qualidade?: string | null;
+  imagem_url?: string | null;
   atributos?: string[] | null;
 };
 
@@ -40,6 +43,9 @@ export type CrownedOffer = {
   moeda: string | null;
   prazo_entrega: string | null;
   avaliacao: string | null;
+  dimensoes: string | null;
+  qualidade: string | null;
+  imagem_url: string | null;
   atributos: string[];
   candidates: OfferCandidate[];
   storeHints: Array<{ loja: string; count: number }>;
@@ -125,7 +131,17 @@ function factsFromMentions(
   mentions: CitedObjectLike[],
 ): Pick<
   CrownedOffer,
-  "url" | "preco" | "moeda" | "prazo_entrega" | "avaliacao" | "atributos" | "seller" | "sellerHost"
+  | "url"
+  | "preco"
+  | "moeda"
+  | "prazo_entrega"
+  | "avaliacao"
+  | "dimensoes"
+  | "qualidade"
+  | "imagem_url"
+  | "atributos"
+  | "seller"
+  | "sellerHost"
 > {
   const sellers = new Map<string, { label: string; n: number }>();
   const urls: string[] = [];
@@ -134,6 +150,9 @@ function factsFromMentions(
   let moeda: string | null = null;
   let prazo: string | null = null;
   let avaliacao: string | null = null;
+  let dimensoes: string | null = null;
+  let qualidade: string | null = null;
+  let imagem_url: string | null = null;
   for (const mention of mentions) {
     bump(sellers, sellerFromObject(mention));
     if (mention.url?.trim() && isLikelyProductUrl(mention.url)) urls.push(mention.url.trim());
@@ -143,6 +162,9 @@ function factsFromMentions(
     }
     if (!prazo && mention.prazo_entrega?.trim()) prazo = mention.prazo_entrega.trim();
     if (!avaliacao && mention.avaliacao?.trim()) avaliacao = mention.avaliacao.trim();
+    if (!dimensoes && mention.dimensoes?.trim()) dimensoes = mention.dimensoes.trim();
+    if (!qualidade && mention.qualidade?.trim()) qualidade = mention.qualidade.trim();
+    if (!imagem_url && mention.imagem_url?.trim()) imagem_url = mention.imagem_url.trim();
     for (const attr of mention.atributos ?? []) {
       if (attr.trim()) attrs.add(attr.trim());
     }
@@ -156,6 +178,9 @@ function factsFromMentions(
     moeda,
     prazo_entrega: prazo,
     avaliacao,
+    dimensoes,
+    qualidade,
+    imagem_url,
     atributos: [...attrs],
   };
 }
@@ -173,6 +198,9 @@ export function emptyCrownedOffer(): CrownedOffer {
     moeda: null,
     prazo_entrega: null,
     avaliacao: null,
+    dimensoes: null,
+    qualidade: null,
+    imagem_url: null,
     atributos: [],
     candidates: [],
     storeHints: [],
@@ -366,6 +394,9 @@ function fillNulls<T extends CitedObjectLike>(left: T, right: CitedObjectLike): 
     moeda: left.moeda ?? right.moeda ?? null,
     prazo_entrega: left.prazo_entrega ?? right.prazo_entrega ?? null,
     avaliacao: left.avaliacao ?? right.avaliacao ?? null,
+    dimensoes: left.dimensoes ?? right.dimensoes ?? null,
+    qualidade: left.qualidade ?? right.qualidade ?? null,
+    imagem_url: left.imagem_url ?? right.imagem_url ?? null,
     atributos,
   };
 }

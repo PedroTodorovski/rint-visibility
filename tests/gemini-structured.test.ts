@@ -41,6 +41,7 @@ describe("parseGeminiStructuredOutput", () => {
       "qualidade": null,
       "prazo_entrega": "2 dias úteis",
       "avaliacao": "4.6",
+      "imagem_url": "https://cdn.example/burton.jpg",
       "atributos": ["camber"]
     },
     {
@@ -65,6 +66,7 @@ describe("parseGeminiStructuredOutput", () => {
       qualidade: null,
       prazo_entrega: "2 dias úteis",
       avaliacao: "4.6",
+      imagem_url: "https://cdn.example/burton.jpg",
       atributos: ["camber"],
     });
   });
@@ -153,6 +155,7 @@ describe("cited object identity", () => {
           loja: "Decathlon",
           preco: 1899,
           dimensoes: "158 cm",
+          imagem_url: "https://cdn.example/burton.jpg",
         },
       ],
     ]);
@@ -163,6 +166,7 @@ describe("cited object identity", () => {
         loja: "Decathlon",
         preco: 1899,
         dimensoes: "158 cm",
+        imagem_url: "https://cdn.example/burton.jpg",
       },
     ]);
   });
