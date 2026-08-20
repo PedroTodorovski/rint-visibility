@@ -58,9 +58,7 @@ describe("resolveCitedOfferImage", () => {
   });
 
   it("rejects a guessed non-https path", async () => {
-    await expect(
-      resolveCitedOfferImage({ imagemUrl: "/static/ag1.jpg" }),
-    ).resolves.toBeNull();
+    await expect(resolveCitedOfferImage({ imagemUrl: "/static/ag1.jpg" })).resolves.toBeNull();
   });
 });
 

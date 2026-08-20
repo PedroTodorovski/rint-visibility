@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { assessPdpAdminQuality, catalogFoundationGaps, plainTextLength } from "../src/lib/pdp-admin-quality.js";
+import {
+  assessPdpAdminQuality,
+  catalogFoundationGaps,
+  plainTextLength,
+} from "../src/lib/pdp-admin-quality.js";
 
 describe("assessPdpAdminQuality", () => {
   it("flags thin Admin catalogs with sparse attributes and short description", () => {

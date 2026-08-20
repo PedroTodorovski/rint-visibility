@@ -135,10 +135,13 @@ describe("founder-action-copy", () => {
       "missing_sources_without_store",
     );
     expect(
-      validateFounderActionCopy(buildDeterministicFounderActionCopy({ ...brief, incoherent: true }), {
-        ...brief,
-        incoherent: true,
-      }),
+      validateFounderActionCopy(
+        buildDeterministicFounderActionCopy({ ...brief, incoherent: true }),
+        {
+          ...brief,
+          incoherent: true,
+        },
+      ),
     ).toBeNull();
     expect(
       validateFounderActionCopy(

@@ -1,12 +1,8 @@
 /** Layered product photo for a cited competitor. Pontual GET of URLs Gemini already named — not a catalog. */
 
-import { productIdentityKey, type CitedObjectLike } from "./cited-offer.js";
-import {
-  fetchPublicPdp,
-  parsePublicPdpHtml,
-  type PublicPdpIdentity,
-} from "./pdp-identity.js";
-import { hydrateGeminiStructured, type GeminiStructuredOutput } from "./llm/gemini-structured.js";
+import { type CitedObjectLike, productIdentityKey } from "./cited-offer.js";
+import { type GeminiStructuredOutput, hydrateGeminiStructured } from "./llm/gemini-structured.js";
+import { fetchPublicPdp, type PublicPdpIdentity, parsePublicPdpHtml } from "./pdp-identity.js";
 
 export type CitedImageLayer = "gemini" | "json_ld" | "og" | "twitter" | "grounding";
 
@@ -70,7 +66,10 @@ async function fetchPageImage(
   if (!page.alive || page.blocked || !page.html) return null;
   const hit = pickCitedImageFromHtml(page.html, page.url || url);
   if (!hit) return null;
-  if (layerIfHit === "grounding" && (hit.layer === "og" || hit.layer === "twitter" || hit.layer === "json_ld")) {
+  if (
+    layerIfHit === "grounding" &&
+    (hit.layer === "og" || hit.layer === "twitter" || hit.layer === "json_ld")
+  ) {
     return { url: hit.url, layer: "grounding" };
   }
   return hit;

@@ -154,9 +154,10 @@ describe("formulateTrackLlmFirstAction", () => {
 describe("catalogFoundationFromFields", () => {
   it("ignores an unread description length", () => {
     expect(catalogFoundationFromFields({ attributes: ["a", "b", "c"] })).toEqual([]);
-    expect(
-      catalogFoundationFromFields({ attributes: ["Greens"], descriptionChars: 24 }),
-    ).toEqual(["attributes", "description"]);
+    expect(catalogFoundationFromFields({ attributes: ["Greens"], descriptionChars: 24 })).toEqual([
+      "attributes",
+      "description",
+    ]);
   });
 });
 

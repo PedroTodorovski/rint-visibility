@@ -445,9 +445,11 @@ describe("buildDiagnosticOutput track_llm first_action", () => {
 
   it("leads with the mismatch when the cited client object is incoherent", () => {
     const cited = {
-      ...query("Nuture Daily Boost vale a pena", ["59 vitaminas, minerais, bioativos e vegetais"], [
-        "https://nuture.com.br/blog/greens-em-po",
-      ]),
+      ...query(
+        "Nuture Daily Boost vale a pena",
+        ["59 vitaminas, minerais, bioativos e vegetais"],
+        ["https://nuture.com.br/blog/greens-em-po"],
+      ),
       cliente_foi_citado: true,
       concorrente_citado_nome: null,
       concorrente_citado_url: null,

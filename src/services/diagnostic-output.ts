@@ -20,7 +20,11 @@ import type {
 import { publicStorefrontUnreadable } from "./diagnostic-triage.js";
 import type { DiagnosticTrack, ShopifyProductSnapshot } from "./diagnostic-types.js";
 import { buildTrackLlmSupportLine } from "./founder-action-copy.js";
-import { catalogFoundationFromFields, formulateTrackLlmFirstAction, themeFromQuerySet } from "./llm-out-first-action.js";
+import {
+  catalogFoundationFromFields,
+  formulateTrackLlmFirstAction,
+  themeFromQuerySet,
+} from "./llm-out-first-action.js";
 import { aggregateCitationCounts, computeRevenueGap } from "./revenue-gap-engine.js";
 import {
   type SearchConsoleUrlMatch,
@@ -223,7 +227,10 @@ function queryAnswerBlob(query: DiagnosticQueryRow): string {
   return [query.gemini_raw ?? "", executionTexts].join(" ");
 }
 
-function answersNameClient(queries: DiagnosticQueryRow[], snapshot: ShopifyProductSnapshot): boolean {
+function answersNameClient(
+  queries: DiagnosticQueryRow[],
+  snapshot: ShopifyProductSnapshot,
+): boolean {
   const needles = [snapshot.brand, snapshot.name]
     .map((value) => foldNeedle(value ?? ""))
     .filter((value) => value.length >= 3);
@@ -258,8 +265,7 @@ function trackLlmNextSteps(
   const readStorefront = surfaces.some((surface) => surface.kind === "owned_storefront");
   const readExternal = surfaces.some((surface) => surface.kind === "external_source");
   const cited = queries.some((query) => query.cliente_foi_citado);
-  const sourcesWithoutStore =
-    !cited && !readStorefront && answersNameClient(queries, snapshot);
+  const sourcesWithoutStore = !cited && !readStorefront && answersNameClient(queries, snapshot);
   const brief = formulateTrackLlmFirstAction({
     skuName: snapshot.name,
     brand: snapshot.brand,

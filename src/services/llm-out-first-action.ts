@@ -19,7 +19,10 @@ export function catalogFoundationFromFields(input: {
   if (input.attributes.filter((value) => value.trim().length > 0).length < MIN_USEFUL_ATTRIBUTES) {
     gaps.push("attributes");
   }
-  if (typeof input.descriptionChars === "number" && input.descriptionChars < MIN_DESCRIPTION_CHARS) {
+  if (
+    typeof input.descriptionChars === "number" &&
+    input.descriptionChars < MIN_DESCRIPTION_CHARS
+  ) {
     gaps.push("description");
   }
   return gaps;
