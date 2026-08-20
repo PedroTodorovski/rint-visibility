@@ -10,10 +10,7 @@ import { SHOPPER_EVIDENCE_MISSING } from "../src/lib/llm/shopper-evidence.js";
 import { authHeaders } from "../src/lib/request.js";
 import { computeTriage } from "../src/services/diagnostic-triage.js";
 import type { GeminiStructuredOutput } from "../src/services/diagnostic-types.js";
-import {
-  selectDominantSku,
-  selectPrimarySku,
-} from "../src/services/dominant-diagnostic-runner.js";
+import { selectDominantSku, selectPrimarySku } from "../src/services/dominant-diagnostic-runner.js";
 import { liveLlm, stubLlmClient } from "./helpers/live-llm.js";
 import { createMemoryRepositories } from "./helpers/memory-repositories.js";
 
@@ -493,8 +490,16 @@ describe("dominant SKU selection", () => {
   });
 
   it("prefers a closed storefront over a sister with a bigger citation gap", () => {
-    const openMeta = { source: "public_pdp", fetchedAt: "2026-08-20T00:00:00.000Z", storefrontAccess: "open" as const };
-    const closedMeta = { source: "public_pdp", fetchedAt: "2026-08-20T00:00:00.000Z", storefrontAccess: "password" as const };
+    const openMeta = {
+      source: "public_pdp",
+      fetchedAt: "2026-08-20T00:00:00.000Z",
+      storefrontAccess: "open" as const,
+    };
+    const closedMeta = {
+      source: "public_pdp",
+      fetchedAt: "2026-08-20T00:00:00.000Z",
+      storefrontAccess: "password" as const,
+    };
     const baseShopify = {
       url: "https://acme.example/products/hero",
       name: "Hero",
@@ -511,7 +516,11 @@ describe("dominant SKU selection", () => {
         row: {
           id: "sku-open",
           product_id: "product-open",
-          shopify_data: { ...baseShopify, url: "https://acme.example/products/open", meta: openMeta },
+          shopify_data: {
+            ...baseShopify,
+            url: "https://acme.example/products/open",
+            meta: openMeta,
+          },
         },
         product: { id: "product-open" },
         prompts: [],
@@ -520,7 +529,11 @@ describe("dominant SKU selection", () => {
         row: {
           id: "sku-closed",
           product_id: "product-closed",
-          shopify_data: { ...baseShopify, url: "https://acme.example/products/closed", meta: closedMeta },
+          shopify_data: {
+            ...baseShopify,
+            url: "https://acme.example/products/closed",
+            meta: closedMeta,
+          },
         },
         product: { id: "product-closed" },
         prompts: [],
