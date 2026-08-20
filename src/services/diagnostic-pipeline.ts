@@ -72,6 +72,8 @@ export async function runDiagnosticPipeline(
     citationTotal: citations.citationTotal,
     ticketMedio: shopifyRead.data.ticketMedio,
     cacSku: metaRead.data.cac,
+    spend: metaRead.data.spend,
+    conversions: metaRead.data.conversions,
     window,
     origins: {
       receitaAiMedida: ga4Read.data.meta,

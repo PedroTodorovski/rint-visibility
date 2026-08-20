@@ -9,6 +9,8 @@
  * Open street without JSON-LD is track_pdp even if Admin is thin — job and
  * screen must agree or the week glass is empty. `track_produto` needs a competitor (or store) object in
  * `objetos_citados` — a name string without objects is not an offer to compare.
+ * After N/N + street ok: Product before Media. Media waste is conventional Meta
+ * only (CAC > card price or spend with zero purchases) — not Google Ads / Merchant.
  */
 
 import { citedObjectsFromStructured, isCitedClientObject } from "../lib/llm/gemini-structured.js";
@@ -86,22 +88,23 @@ function mergeCheck(current: boolean | null, next: boolean | null): boolean | nu
   return null;
 }
 
-function hasMediaWaste(signals: TriageInput["mediaSignals"]): boolean {
-  const googleWaste = signals?.googleAds?.wastedSpend;
-  if (typeof googleWaste === "number" && googleWaste > 0) return true;
+/**
+ * Conventional Meta Ads only (MVP). Google Ads / Merchant / AI-channel ads
+ * do not pick the week — do not invent waste from v2 ports.
+ * Sick paid: CAC above **card** (SKU currentPrice), or spend with zero purchases.
+ * Ticket médio is Conta 1 / margin evidence — not the waste gate.
+ */
+function hasMediaWaste(signals: TriageInput["mediaSignals"], cardPrice: number): boolean {
+  const meta = signals?.meta;
+  if (!meta) return false;
 
-  const merchant = signals?.merchantCenter;
-  if (
-    merchant?.approved === false ||
-    merchant?.gtinValid === false ||
-    merchant?.priceMatchesShopify === false
-  ) {
-    return true;
-  }
+  const spend = meta.spend ?? 0;
+  const conversions = meta.conversions ?? 0;
+  if (spend > 0 && conversions === 0) return true;
 
-  const cac = signals?.meta?.cac ?? 0;
-  const ticket = signals?.shopifyRevenue?.ticketMedio ?? 0;
-  return cac > 0 && ticket > 0 && cac > ticket;
+  const cac = meta.cac ?? 0;
+  const card = cardPrice > 0 ? cardPrice : 0;
+  return cac > 0 && card > 0 && cac > card;
 }
 
 export function publicStorefrontUnreadable(snapshot: ShopifyProductSnapshot): boolean {
@@ -207,10 +210,11 @@ export function computeTriage(input: TriageInput): TriageOutcome {
     track = "track_pdp";
   } else if (coherenceLevel === "parcialmente_coerente" || thinCatalog) {
     track = "track_llm";
-  } else if (hasMediaWaste(input.mediaSignals)) {
-    track = "track_midia";
   } else if (competitorCited) {
+    // Product before media — do not scale ads of a SKU the model already rejected.
     track = "track_produto";
+  } else if (hasMediaWaste(input.mediaSignals, input.skus[0]?.shopify.currentPrice ?? 0)) {
+    track = "track_midia";
   } else {
     track = "track_pdp";
   }
@@ -222,7 +226,10 @@ export function computeTriage(input: TriageInput): TriageOutcome {
       one_dominant_track: true,
       client_cited: clientCited,
       competitor_cited: competitorCited,
-      media_waste_detected: hasMediaWaste(input.mediaSignals),
+      media_waste_detected: hasMediaWaste(
+        input.mediaSignals,
+        input.skus[0]?.shopify.currentPrice ?? 0,
+      ),
       storefront_not_public: storefrontClosed,
       comparisons: checks,
     },
