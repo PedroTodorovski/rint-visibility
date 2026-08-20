@@ -15,8 +15,7 @@ progress:
 - **Phase:** 1 — MVP 2026 (lacuna de receita)
 - **Branch:** `feat/llm-diagnosis-recados`
 - **Shipped this slice:** 0/N e citação parcial → Conteúdo no job. `incoherent` e `sourcesWithoutStore` no `content_brief`. Cadastro primeiro continua.
-- **Already on main:** Prova vazia falha fechado. Foto do dia. Follow-up de compra só se o **storefront** falta. `objetos_citados`. `first_action` / `content_brief` em `track_llm`. GA4: `sessoesAi` + top-K `sessoesAiLandings` (#31).
-- **Parallel:** `isLikelyPdpUrl` (`feat/product-url-gate`) — PR separado.
+- **Already on main:** Porta da URL (`isLikelyPdpUrl`, #39). Prova vazia falha fechado. Foto do dia. Follow-up de compra só se o **storefront** falta. `objetos_citados`. `first_action` / `content_brief` em `track_llm`. GA4: `sessoesAi` + top-K `sessoesAiLandings` (#31).
 - **Next:** chips de Página (PDP) no admin.
 
 ## Repo boundaries
