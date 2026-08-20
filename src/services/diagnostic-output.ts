@@ -16,7 +16,7 @@ import type {
   DiagnosticQueryRow,
   DiagnosticSkuRow,
 } from "../repositories/diagnostic-tables.js";
-import { publicStorefrontUnreadable } from "./diagnostic-triage.js";
+import { isMarketplaceProductUrl } from "./diagnostic-input.js";
 import type { DiagnosticTrack, ShopifyProductSnapshot } from "./diagnostic-types.js";
 import { buildTrackLlmSupportLine } from "./founder-action-copy.js";
 import {
@@ -24,6 +24,8 @@ import {
   formulateTrackLlmFirstAction,
   themeFromQuerySet,
 } from "./llm-out-first-action.js";
+import { formulateTrackPdpFirstAction } from "./pdp-out-first-action.js";
+import { judgePageWeek } from "./pdp-week-judge.js";
 import { formulateTrackProdutoFirstAction } from "./produto-out-first-action.js";
 import { judgeProductWeek } from "./produto-week-judge.js";
 import { aggregateCitationCounts, computeRevenueGap } from "./revenue-gap-engine.js";
@@ -461,6 +463,95 @@ function trackProdutoNextSteps(snapshot: ShopifyProductSnapshot, queries: Diagno
   };
 }
 
+function trackPdpNextSteps(snapshot: ShopifyProductSnapshot) {
+  const access = snapshot.meta.storefrontAccess ?? null;
+  const inAdmin = snapshot.meta.source === "shopify_api";
+  const shopifyConnected =
+    inAdmin || snapshot.meta.shopConnected === true || snapshot.meta.panelMismatch === true;
+  const judgment = judgePageWeek({
+    access,
+    hasJsonLd: snapshot.meta.hasJsonLd ?? null,
+    shopifyConnected,
+    panelMismatch: snapshot.meta.panelMismatch === true,
+    marketplaceUrl: isMarketplaceProductUrl(snapshot.url),
+  });
+  const brief = formulateTrackPdpFirstAction({
+    skuName: snapshot.name,
+    brand: snapshot.brand,
+    productUrl: snapshot.url,
+    move: judgment.move,
+    access,
+    hasJsonLd: snapshot.meta.hasJsonLd ?? null,
+    shopifyConnected: inAdmin,
+    panelMismatch: snapshot.meta.panelMismatch === true,
+    shopDomain: snapshot.meta.shopDomain ?? null,
+  });
+  if (!brief) {
+    return {
+      owner: "o fundador na loja",
+      move: judgment.move,
+    };
+  }
+  return {
+    owner: "o fundador na loja",
+    move: judgment.move,
+    first_action: brief.first_action,
+    support_line: brief.support_line,
+    page_brief: {
+      theme: brief.theme,
+      sku_name: brief.sku_name,
+      brand: brief.brand,
+      move: brief.move,
+      surface: brief.surface,
+      target_url: brief.target_url,
+      access: brief.access,
+      has_json_ld: brief.has_json_ld,
+      source: brief.source,
+      shop_domain: brief.shop_domain,
+      panel_mismatch: brief.panel_mismatch,
+    },
+  };
+}
+
+function trackPdpCauses(move: ReturnType<typeof judgePageWeek>["move"]): Array<{
+  type: string;
+  text: string;
+}> {
+  if (move === "abrir_senha" || move === "tirar_bloqueio") {
+    return [
+      {
+        type: "storefront_closed",
+        text: "A loja não está aberta publicamente. Se o cliente não entra, a IA também não entra.",
+      },
+    ];
+  }
+  if (move === "ligar_loja_da_url") {
+    return [
+      {
+        type: "panel_mismatch",
+        text: "Esta URL não está no Shopify que você ligou. Lemos a página pública.",
+      },
+    ];
+  }
+  if (move === "conferir_publico") {
+    return [
+      {
+        type: "publico_nao_lido",
+        text: "Não conseguimos ler a página pública deste produto. Não afirmamos schema.",
+      },
+    ];
+  }
+  if (move === "expor_schema") {
+    return [
+      {
+        type: "ficha_na_rua",
+        text: "A página pública não expõe a ficha estruturada deste produto.",
+      },
+    ];
+  }
+  return [];
+}
+
 export function buildCitationFinancialRisks(
   input: CitationFinanceInput,
 ): CreateFinancialRiskInput[] {
@@ -584,7 +675,10 @@ export function buildDiagnosticOutput(input: DiagnosticOutputInput): DiagnosticO
     );
   }
 
-  if (input.track === "track_pdp" && publicStorefrontUnreadable(shopifyData)) {
+  if (input.track === "track_pdp") {
+    const next = trackPdpNextSteps(shopifyData);
+    const closed = next.move === "abrir_senha" || next.move === "tirar_bloqueio";
+    const { move: _move, ...nextSteps } = next;
     return withHeadline(
       {
         risks: commonRisks,
@@ -592,94 +686,10 @@ export function buildDiagnosticOutput(input: DiagnosticOutputInput): DiagnosticO
           job_id: input.jobId,
           sku_id: input.primarySku.id,
           track: "track_pdp",
-          causes: [
-            {
-              type: "storefront_closed",
-              text: "A loja não está aberta publicamente. Se o cliente não entra, a IA também não entra.",
-            },
-          ],
-          actions: [
-            {
-              type: "tecnica",
-              text: "Deixe esta URL pública — tire a senha ou o bloqueio da página do produto.",
-            },
-          ],
-          next_steps: {
-            owner: "o fundador na loja",
-            first_action:
-              "Deixar esta URL pública — tirar a senha ou o bloqueio da página do produto.",
-          },
-          prazo: "imediato — a IA só lê o que o público lê",
-        },
-      },
-      input.primarySku.shopify_data.name,
-      input.queries,
-    );
-  }
-
-  if (input.track === "track_pdp") {
-    return withHeadline(
-      {
-        risks: [
-          ...commonRisks,
-          {
-            job_id: input.jobId,
-            sku_id: input.primarySku.id,
-            gap_value: null,
-            lost_clients: input.finance.conversion?.nonConvertingSessions ?? null,
-            compensation_cost: null,
-            formula_type: "pdp_conversion_risk",
-            inputs: {
-              conversion_rate: input.finance.conversion?.conversionRate ?? null,
-              sessions: input.finance.conversion?.sessions ?? null,
-              bounce_rate: input.finance.conversion?.bounceRate ?? null,
-              scroll_depth: input.finance.conversion?.scrollDepth ?? null,
-              source: input.finance.conversion?.meta ?? unavailable("ga4_conversion_metrics"),
-            },
-          },
-        ],
-        diagnostic: {
-          job_id: input.jobId,
-          sku_id: input.primarySku.id,
-          track: "track_pdp",
-          causes: [
-            {
-              type: "conteudo_incompleto",
-              items: [
-                "atributos técnicos ausentes ou pouco indexáveis",
-                "descrição genérica sem diferenciação semântica",
-                "ausência de FAQ indexável na PDP",
-                "imagens sem alt text descritivo",
-              ],
-            },
-            {
-              type: "falha_tecnica",
-              items: [
-                "Schema.org de produto ausente ou incorreto",
-                "Open Graph tags ausentes ou incorretas",
-                "Canonical URL com erro",
-                "Robots.txt ou noindex bloqueando a PDP",
-              ],
-              excluded_causes: ["Pixel Meta", "GA4 pixel"],
-            },
-          ],
-          actions: [
-            {
-              type: "conteudo",
-              text: "Enriquecer atributos indexáveis pela IA.",
-              missing_attributes: absentAttributes,
-            },
-            {
-              type: "tecnica",
-              text: "Corrigir Schema.org, Open Graph, Canonical URL e Robots.txt.",
-            },
-          ],
-          next_steps: {
-            owner: "parceiro de conteúdo ou agência técnica especializada na plataforma do cliente",
-            decision_rule:
-              "Conteúdo se faltar informação; agência técnica se houver schema/canonical/robots incorretos.",
-          },
-          prazo: "variável — dado a ser coletado em fase de testes",
+          causes: trackPdpCauses(next.move),
+          actions: next.first_action ? [{ type: "tecnica", text: next.first_action }] : [],
+          next_steps: nextSteps,
+          prazo: closed ? "imediato — a IA só lê o que o público lê" : "imediato",
         },
       },
       input.primarySku.shopify_data.name,

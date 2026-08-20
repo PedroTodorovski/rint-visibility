@@ -630,6 +630,7 @@ export async function runDominantDiagnostic(
     for (const product of products) {
       const snapshot = await validateAndSnapshotSku(product, ports.shopifyProduct, {
         shopifyConnected: gold,
+        shopDomain: payload.integrationConfig?.shopify?.shopDomain ?? null,
       });
       const searchConsole = await ports.searchConsole.getOwnedSurfaces({
         storefrontHost: hostFromUrl(product.url),

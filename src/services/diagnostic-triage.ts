@@ -2,9 +2,12 @@
  * Dominant-track routing for the diagnostic **job** snapshot.
  * Map: rint-app/docs/DIAGNOSIS-DOMINANT.md
  *
- * Citation gap (0/N or 1–N-1/N) → track_llm. Same as the report (`diagnosisTrackForSku`).
- * Closed URL still wins first (track_pdp). Hard price/brand mismatch on the client object
- * is also track_llm. `track_produto` needs a competitor (or store) object in
+ * Closed URL still wins first (track_pdp). Shopify connected without this
+ * product (not marketplace) is also track_pdp. Citation gap and hard
+ * price/brand mismatch on the client object are track_llm. Thin Admin
+ * (description/attrs) is track_llm when JSON-LD is already on the street.
+ * Open street without JSON-LD is track_pdp even if Admin is thin — job and
+ * screen must agree or the week glass is empty. `track_produto` needs a competitor (or store) object in
  * `objetos_citados` — a name string without objects is not an offer to compare.
  */
 
@@ -109,6 +112,15 @@ export function publicStorefrontUnreadable(snapshot: ShopifyProductSnapshot): bo
   return snapshot.meta.source === "shopify_api" && snapshot.meta.hasJsonLd == null;
 }
 
+function catalogFoundationThin(snapshot: ShopifyProductSnapshot): boolean {
+  const gaps = snapshot.meta.admin?.gaps ?? [];
+  return gaps.includes("attributes") || gaps.includes("description");
+}
+
+function panelMismatch(snapshot: ShopifyProductSnapshot): boolean {
+  return snapshot.meta.panelMismatch === true;
+}
+
 export function computeTriage(input: TriageInput): TriageOutcome {
   const skuById = new Map(input.skus.map((sku) => [sku.id, sku.shopify]));
   const checks: Array<Record<string, unknown>> = [];
@@ -169,15 +181,32 @@ export function computeTriage(input: TriageInput): TriageOutcome {
 
   let track: DiagnosticTrack;
   const storefrontClosed = input.skus.some((sku) => publicStorefrontUnreadable(sku.shopify));
+  const shopMismatch = input.skus.some((sku) => panelMismatch(sku.shopify));
+  const thinCatalog = input.skus.some((sku) => catalogFoundationThin(sku.shopify));
+  const missingStreetSchema = input.skus.some((sku) => {
+    const access = sku.shopify.meta.storefrontAccess;
+    const shopOnRun =
+      sku.shopify.meta.source === "shopify_api" ||
+      sku.shopify.meta.shopConnected === true ||
+      sku.shopify.meta.panelMismatch === true;
+    return shopOnRun && access === "open" && sku.shopify.meta.hasJsonLd === false;
+  });
+  const unverifiedStreet = input.skus.some(
+    (sku) => sku.shopify.meta.storefrontAccess === "unverified",
+  );
   if (storefrontClosed) {
     // Admin catalog is not the vitrine — AI cannot index a password wall.
+    track = "track_pdp";
+  } else if (shopMismatch) {
     track = "track_pdp";
   } else if (coherenceLevel === "incoerente") {
     track = "track_llm";
   } else if (citationGap) {
     track = "track_llm";
-  } else if (coherenceLevel === "parcialmente_coerente") {
+  } else if (missingStreetSchema || unverifiedStreet) {
     track = "track_pdp";
+  } else if (coherenceLevel === "parcialmente_coerente" || thinCatalog) {
+    track = "track_llm";
   } else if (hasMediaWaste(input.mediaSignals)) {
     track = "track_midia";
   } else if (competitorCited) {

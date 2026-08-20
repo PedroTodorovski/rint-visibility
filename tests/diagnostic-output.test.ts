@@ -631,3 +631,138 @@ describe("buildDiagnosticOutput track_produto first_action", () => {
     expect(output.diagnostic.actions).toEqual([]);
   });
 });
+
+describe("buildDiagnosticOutput track_pdp first_action", () => {
+  const finance = {
+    ga4: { totalRevenue: 0, totalSessions: 0, bySource: [], meta },
+    shopify: { externalRef: "NUT000007", revenue: 0, orders: 0, ticketMedio: 348, meta },
+    meta: { externalRef: "NUT000007", spend: 0, conversions: 0, cac: 0, meta },
+    conversion: null,
+    googleAds: null,
+    merchantCenter: null,
+    trends: null,
+    seoGaps: [],
+  };
+
+  it("emits page_brief for a password wall, not a SEO laundry list", () => {
+    const closed: DiagnosticSkuRow = {
+      ...sku,
+      shopify_data: {
+        ...snapshot,
+        meta: {
+          ...snapshot.meta,
+          source: "shopify_api",
+          storefrontAccess: "password",
+          hasJsonLd: null,
+        },
+      },
+    };
+    const output = buildDiagnosticOutput({
+      jobId: "job-1",
+      primarySku: closed,
+      skus: [closed],
+      queries: [query("Melhor suplemento de greens no Brasil", [])],
+      track: "track_pdp",
+      finance,
+    });
+    const next = output.diagnostic.next_steps;
+    expect(String(next.first_action)).toContain("está com senha");
+    expect(String(next.first_action)).not.toMatch(/FAQ|Canonical|Robots|Open Graph/i);
+    expect(next.page_brief).toMatchObject({
+      move: "abrir_senha",
+      source: "nao_lemos",
+      has_json_ld: null,
+    });
+  });
+
+  it("emits expose-schema copy when the street is open without JSON-LD", () => {
+    const open: DiagnosticSkuRow = {
+      ...sku,
+      shopify_data: {
+        ...snapshot,
+        meta: {
+          ...snapshot.meta,
+          source: "shopify_api",
+          storefrontAccess: "open",
+          hasJsonLd: false,
+        },
+      },
+    };
+    const output = buildDiagnosticOutput({
+      jobId: "job-1",
+      primarySku: open,
+      skus: [open],
+      queries: [query("Melhor suplemento de greens no Brasil", [])],
+      track: "track_pdp",
+      finance,
+    });
+    expect(String(output.diagnostic.next_steps.first_action)).toContain("ficha estruturada");
+    expect(output.diagnostic.next_steps.page_brief).toMatchObject({
+      move: "expor_schema",
+      source: "rua",
+    });
+  });
+
+  it("does not claim missing schema when the public GET did not close", () => {
+    const unverified: DiagnosticSkuRow = {
+      ...sku,
+      shopify_data: {
+        ...snapshot,
+        meta: {
+          ...snapshot.meta,
+          source: "shopify_api",
+          storefrontAccess: "unverified",
+          hasJsonLd: null,
+        },
+      },
+    };
+    const output = buildDiagnosticOutput({
+      jobId: "job-1",
+      primarySku: unverified,
+      skus: [unverified],
+      queries: [query("Melhor suplemento de greens no Brasil", [])],
+      track: "track_pdp",
+      finance,
+    });
+    expect(output.diagnostic.causes).toEqual([
+      expect.objectContaining({ type: "publico_nao_lido" }),
+    ]);
+    expect(output.diagnostic.next_steps.page_brief).toMatchObject({
+      move: "conferir_publico",
+      has_json_ld: null,
+    });
+    expect(String(output.diagnostic.next_steps.first_action)).toContain("Não conseguimos ler");
+    expect(String(output.diagnostic.next_steps.first_action)).toContain("não afirmamos");
+  });
+
+  it("does not claim Shopify cadastro on a marketplace street snapshot", () => {
+    const market: DiagnosticSkuRow = {
+      ...sku,
+      shopify_data: {
+        ...snapshot,
+        url: "https://www.mercadolivre.com.br/item-camisa",
+        meta: {
+          ...snapshot.meta,
+          source: "public_pdp",
+          storefrontAccess: "open",
+          hasJsonLd: false,
+          shopConnected: true,
+          panelMismatch: false,
+        },
+      },
+    };
+    const output = buildDiagnosticOutput({
+      jobId: "job-1",
+      primarySku: market,
+      skus: [market],
+      queries: [query("Melhor suplemento de greens no Brasil", [])],
+      track: "track_pdp",
+      finance,
+    });
+    expect(String(output.diagnostic.next_steps.first_action)).toContain("ficha estruturada");
+    expect(String(output.diagnostic.next_steps.first_action)).not.toContain(
+      "cadastro no Shopify já tem",
+    );
+    expect(output.diagnostic.next_steps.page_brief).toMatchObject({ move: "expor_schema" });
+  });
+});

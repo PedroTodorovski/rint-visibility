@@ -1,9 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ProductRow, PromptRow } from "../src/repositories/types.js";
 import {
   groupQueriesByProduct,
   isLikelyPdpUrl,
+  isMarketplaceProductUrl,
   productsForDiagnosis,
+  validateAndSnapshotSku,
 } from "../src/services/diagnostic-input.js";
 
 function product(id: string, position: number): ProductRow {
@@ -66,5 +68,66 @@ describe("isLikelyPdpUrl", () => {
     expect(isLikelyPdpUrl("https://loja.com/blog/post")).toBe(false);
     expect(isLikelyPdpUrl("https://loja.com/collections/all")).toBe(false);
     expect(isLikelyPdpUrl("https://loja.com/colecao/verao")).toBe(false);
+  });
+});
+
+describe("isMarketplaceProductUrl", () => {
+  it("accepts Mercado Livre and Amazon product hosts", () => {
+    expect(isMarketplaceProductUrl("https://www.mercadolivre.com.br/item-camisa")).toBe(true);
+    expect(isMarketplaceProductUrl("https://www.amazon.com.br/dp/B0EXAMPLE")).toBe(true);
+    expect(isMarketplaceProductUrl("https://nuture.com.br/products/daily")).toBe(false);
+  });
+});
+
+describe("validateAndSnapshotSku shop mismatch", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const row: ProductRow = {
+    id: "p1",
+    store_id: "store-1",
+    url: "https://nuture.com.br/products/nuture-daily-boost",
+    title: "Nuture Daily Boost",
+    description: null,
+    external_ref: "gid://shopify/Product/1",
+    position: 1,
+    created_at: "2026-08-18T12:00:00.000Z",
+    updated_at: "2026-08-18T12:00:00.000Z",
+  };
+
+  it("does not abort when Shopify is connected but this product is missing", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () => new Response("<html><body><h1>Daily Boost</h1></body></html>", { status: 200 }),
+      ),
+    );
+    const snapshot = await validateAndSnapshotSku(
+      row,
+      {
+        getProductSnapshot: async () => null,
+      },
+      { shopifyConnected: true, shopDomain: "outra-loja.myshopify.com" },
+    );
+    expect(snapshot.meta.panelMismatch).toBe(true);
+    expect(snapshot.meta.shopConnected).toBe(true);
+    expect(snapshot.meta.shopDomain).toBe("outra-loja.myshopify.com");
+    expect(snapshot.meta.source).toBe("public_pdp");
+    expect(snapshot.name).toBe("Nuture Daily Boost");
+  });
+
+  it("does not flag marketplace URLs as shop≠URL", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("<html><body><h1>Item</h1></body></html>", { status: 200 })),
+    );
+    const snapshot = await validateAndSnapshotSku(
+      { ...row, url: "https://www.mercadolivre.com.br/item-camisa" },
+      { getProductSnapshot: async () => null },
+      { shopifyConnected: true, shopDomain: "nuture-supps.myshopify.com" },
+    );
+    expect(snapshot.meta.panelMismatch).toBe(false);
+    expect(snapshot.meta.source).toBe("public_pdp");
   });
 });

@@ -72,6 +72,31 @@ export function isLikelyPdpUrl(url: string): boolean {
   }
 }
 
+const MARKETPLACE_PRODUCT_HOSTS = [
+  "mercadolivre.com.br",
+  "mercadolivre.com",
+  "mercadolibre.com",
+  "mercadolibre.com.ar",
+  "mercadolibre.com.mx",
+  "amazon.com",
+  "amazon.com.br",
+  "amazon.co.uk",
+  "amazon.de",
+  "amzn.to",
+] as const;
+
+/** Mercado Livre / Amazon — street-only. Not the “wrong Shopify” recado. */
+export function isMarketplaceProductUrl(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase().replace(/^www\./, "");
+    return MARKETPLACE_PRODUCT_HOSTS.some(
+      (suffix) => host === suffix || host.endsWith(`.${suffix}`),
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function assertRunLimits(
   products: ProductRow[],
   promptsByProduct: Map<string, PromptRow[]>,
@@ -165,10 +190,56 @@ function publicUrlUnreadable(fetched: {
   );
 }
 
+function streetSnapshotFromFetch(
+  product: ProductRow,
+  fetched: Awaited<ReturnType<typeof fetchPublicPdp>>,
+  options: { panelMismatch: boolean; shopConnected: boolean; shopDomain?: string | null },
+): ShopifyProductSnapshot {
+  const closed = publicUrlUnreadable(fetched);
+  const name =
+    (!closed && fetched.identity.name?.trim()) ||
+    product.title?.trim() ||
+    displayNameFromUrl(product.url);
+  return {
+    externalRef: product.external_ref,
+    url: product.url,
+    name,
+    brand: fetched.identity.brand,
+    currentPrice: fetched.identity.currentPrice,
+    currency: fetched.identity.currency,
+    attributes: fetched.identity.attributes,
+    variants: [],
+    inventoryAvailable: null,
+    material: fetched.identity.material,
+    dimension: fetched.identity.dimension,
+    color: fetched.identity.color,
+    image: fetched.identity.image,
+    meta: {
+      source: "public_pdp",
+      fetchedAt: new Date().toISOString(),
+      hasJsonLd: closed ? null : fetched.identity.hasJsonLd,
+      hasOg: closed ? false : fetched.identity.hasOg,
+      storefrontAccess: closed
+        ? fetched.storefrontAccess === "open"
+          ? "blocked"
+          : fetched.storefrontAccess
+        : fetched.storefrontAccess,
+      storefrontPlatform: detectStorefrontPlatform({
+        url: fetched.url || product.url,
+        html: fetched.html,
+      }),
+      imageSource: fetched.identity.imageSource,
+      panelMismatch: options.panelMismatch,
+      shopConnected: options.shopConnected,
+      shopDomain: options.shopDomain ?? null,
+    },
+  };
+}
+
 export async function validateAndSnapshotSku(
   product: ProductRow,
   shopifyProduct: ShopifyProductSnapshotPort,
-  options: { shopifyConnected: boolean } = { shopifyConnected: true },
+  options: { shopifyConnected: boolean; shopDomain?: string | null } = { shopifyConnected: true },
 ): Promise<ShopifyProductSnapshot> {
   const errors: string[] = [];
 
@@ -201,7 +272,12 @@ export async function validateAndSnapshotSku(
     }
 
     if (!snapshot && !adminQueryFailed) {
-      errors.push("Produto não encontrado na Shopify Admin API");
+      const marketplace = isMarketplaceProductUrl(product.url);
+      return streetSnapshotFromFetch(product, fetched, {
+        panelMismatch: !marketplace,
+        shopConnected: true,
+        shopDomain: options.shopDomain ?? null,
+      });
     }
 
     if (snapshot) {
@@ -256,6 +332,7 @@ export async function validateAndSnapshotSku(
         }),
         imageSource: snapshot.image ? "shopify_api" : fetched.identity.imageSource,
         admin,
+        shopDomain: snapshot.meta.shopDomain ?? options.shopDomain ?? null,
       },
     };
   }
