@@ -10,7 +10,10 @@ import { SHOPPER_EVIDENCE_MISSING } from "../src/lib/llm/shopper-evidence.js";
 import { authHeaders } from "../src/lib/request.js";
 import { computeTriage } from "../src/services/diagnostic-triage.js";
 import type { GeminiStructuredOutput } from "../src/services/diagnostic-types.js";
-import { selectDominantSku } from "../src/services/dominant-diagnostic-runner.js";
+import {
+  selectDominantSku,
+  selectPrimarySku,
+} from "../src/services/dominant-diagnostic-runner.js";
 import { liveLlm, stubLlmClient } from "./helpers/live-llm.js";
 import { createMemoryRepositories } from "./helpers/memory-repositories.js";
 
@@ -76,6 +79,21 @@ async function waitForStatus(
     await sleep(10);
   }
   throw new Error(`job did not reach ${status}`);
+}
+
+const PASSWORD_STOREFRONT_HTML = `<html><body><p>This store is password protected</p><form action="/password"><input name="password"></form></body></html>`;
+const OPEN_PDP_HTML = `<html><head><script type="application/ld+json">{"@type":"Product","name":"Hero Sofa","offers":{"price":"4200","priceCurrency":"BRL"}}</script></head></html>`;
+
+function emptyShopperClient() {
+  return stubLlmClient(async () => ({
+    rawText: "",
+    structured: emptyGeminiStructured(),
+    model: "mock",
+    mocked: true,
+    usedWebSearch: false,
+    groundingUrls: [],
+    calls: [],
+  }));
 }
 
 afterEach(() => {
@@ -212,15 +230,7 @@ describe("dominant diagnostics API", () => {
     const app = await buildApp(testConfig(), {
       repositories: createMemoryRepositories(),
       llm: liveLlm({
-        gemini: stubLlmClient(async () => ({
-          rawText: "",
-          structured: emptyGeminiStructured(),
-          model: "mock",
-          mocked: true,
-          usedWebSearch: false,
-          groundingUrls: [],
-          calls: [],
-        })),
+        gemini: emptyShopperClient(),
       }),
     });
     await seedStore(app);
@@ -232,6 +242,159 @@ describe("dominant diagnostics API", () => {
     });
     const job = await waitForStatus(app, run.json().job_id, "failed");
     expect(job.error_message).toBe(SHOPPER_EVIDENCE_MISSING);
+  });
+
+  it("fails the job when an open PDP has no shopper text", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(OPEN_PDP_HTML, { status: 200 })),
+    );
+    const app = await buildApp(testConfig(), {
+      repositories: createMemoryRepositories(),
+      llm: liveLlm({ gemini: emptyShopperClient() }),
+    });
+    await seedStore(app);
+    const run = await app.inject({
+      method: "POST",
+      url: `/v1/diagnostics/run?workspace_id=${WORKSPACE_ID}`,
+      headers: authHeaders(TEST_API_KEY),
+      payload: { plan: "essential" },
+    });
+    const job = await waitForStatus(app, run.json().job_id, "failed");
+    expect(job.error_message).toBe(SHOPPER_EVIDENCE_MISSING);
+  });
+
+  it("completes track_pdp when the storefront is password-gated and Gemini is silent", async () => {
+    const diagnoseQuery = vi.fn(async () => {
+      throw new Error("closed storefront must not probe Gemini");
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(PASSWORD_STOREFRONT_HTML, { status: 200 })),
+    );
+    const app = await buildApp(testConfig(), {
+      repositories: createMemoryRepositories(),
+      llm: liveLlm({ gemini: stubLlmClient(diagnoseQuery) }),
+    });
+    await seedStore(app);
+    const run = await app.inject({
+      method: "POST",
+      url: `/v1/diagnostics/run?workspace_id=${WORKSPACE_ID}`,
+      headers: authHeaders(TEST_API_KEY),
+      payload: {
+        plan: "essential",
+        integration_config: { shopify: { shopDomain: "acme.myshopify.com" } },
+      },
+    });
+    const job = await waitForStatus(app, run.json().job_id, "completed");
+    expect(job.error_message).toBeNull();
+    expect(diagnoseQuery).not.toHaveBeenCalled();
+
+    const diagnostic = await app.inject({
+      method: "GET",
+      url: `/v1/diagnostics/${run.json().job_id}?workspace_id=${WORKSPACE_ID}`,
+      headers: authHeaders(TEST_API_KEY),
+    });
+    expect(diagnostic.json().job.status).toBe("completed");
+    expect(diagnostic.json().skus[0].shopify_data.meta.storefrontAccess).toBe("password");
+    expect(diagnostic.json().triage_result.track_assigned).toBe("track_pdp");
+    expect(diagnostic.json().diagnostic.track).toBe("track_pdp");
+    expect(diagnostic.json().diagnostic.next_steps.page_brief.move).toBe("abrir_senha");
+    expect(String(diagnostic.json().diagnostic.next_steps.first_action)).toContain("senha");
+    expect(diagnostic.json().queries).toEqual([]);
+  });
+
+  it("persists track_pdp for a password wall even when Shopify is not connected", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(PASSWORD_STOREFRONT_HTML, { status: 200 })),
+    );
+    const app = await buildApp(testConfig(), {
+      repositories: createMemoryRepositories(),
+      llm: liveLlm({ gemini: emptyShopperClient() }),
+    });
+    await seedStore(app);
+    const run = await app.inject({
+      method: "POST",
+      url: `/v1/diagnostics/run?workspace_id=${WORKSPACE_ID}`,
+      headers: authHeaders(TEST_API_KEY),
+      payload: { plan: "essential" },
+    });
+    const job = await waitForStatus(app, run.json().job_id, "completed");
+    expect(job.error_message).toBeNull();
+
+    const diagnostic = await app.inject({
+      method: "GET",
+      url: `/v1/diagnostics/${run.json().job_id}?workspace_id=${WORKSPACE_ID}`,
+      headers: authHeaders(TEST_API_KEY),
+    });
+    expect(diagnostic.json().diagnostic).not.toBeNull();
+    expect(diagnostic.json().diagnostic.track).toBe("track_pdp");
+    expect(diagnostic.json().triage_result.track_assigned).toBe("track_pdp");
+    expect(diagnostic.json().diagnostic.next_steps.page_brief.move).toBe("abrir_senha");
+    expect(diagnostic.json().skus[0].shopify_data.meta.source).toBe("public_pdp");
+    expect(diagnostic.json().skus[0].shopify_data.meta.storefrontAccess).toBe("password");
+  });
+
+  it("still completes Página when a sister SKU is open but Gemini is silent", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/products/open")) {
+          return new Response(OPEN_PDP_HTML, { status: 200 });
+        }
+        return new Response(PASSWORD_STOREFRONT_HTML, { status: 200 });
+      }),
+    );
+    const app = await buildApp(testConfig(), {
+      repositories: createMemoryRepositories(),
+      llm: liveLlm({ gemini: emptyShopperClient() }),
+    });
+    await seedStore(app);
+    const openProduct = await app.inject({
+      method: "POST",
+      url: `/v1/products?workspace_id=${WORKSPACE_ID}`,
+      headers: authHeaders(TEST_API_KEY),
+      payload: {
+        url: "https://acme.example/products/open",
+        title: "Open Sofa",
+        external_ref: "gid://shopify/Product/2",
+        position: 2,
+      },
+    });
+    await app.inject({
+      method: "POST",
+      url: `/v1/prompts?workspace_id=${WORKSPACE_ID}`,
+      headers: authHeaders(TEST_API_KEY),
+      payload: {
+        prompt_text: "sofá aberto na rua",
+        product_id: openProduct.json().product.id,
+        sort_order: 1,
+      },
+    });
+    const run = await app.inject({
+      method: "POST",
+      url: `/v1/diagnostics/run?workspace_id=${WORKSPACE_ID}`,
+      headers: authHeaders(TEST_API_KEY),
+      payload: {
+        plan: "essential",
+        integration_config: { shopify: { shopDomain: "acme.myshopify.com" } },
+      },
+    });
+    const job = await waitForStatus(app, run.json().job_id, "completed");
+    expect(job.error_message).toBeNull();
+    const diagnostic = await app.inject({
+      method: "GET",
+      url: `/v1/diagnostics/${run.json().job_id}?workspace_id=${WORKSPACE_ID}`,
+      headers: authHeaders(TEST_API_KEY),
+    });
+    expect(diagnostic.json().diagnostic.track).toBe("track_pdp");
+    expect(diagnostic.json().diagnostic.next_steps.page_brief.move).toBe("abrir_senha");
+    const closedSku = diagnostic
+      .json()
+      .skus.find((row: { url: string }) => row.url.includes("/products/hero"));
+    expect(diagnostic.json().diagnostic.sku_id).toBe(closedSku.id);
   });
 
   it("calls an optional second diagnostic client in the same job", async () => {
@@ -326,6 +489,57 @@ describe("dominant SKU selection", () => {
       strategy: "highest_visibility_gap_score",
       scope: "dominant_sku_within_cluster",
       selected_sku_id: "sku-leaking",
+    });
+  });
+
+  it("prefers a closed storefront over a sister with a bigger citation gap", () => {
+    const openMeta = { source: "public_pdp", fetchedAt: "2026-08-20T00:00:00.000Z", storefrontAccess: "open" as const };
+    const closedMeta = { source: "public_pdp", fetchedAt: "2026-08-20T00:00:00.000Z", storefrontAccess: "password" as const };
+    const baseShopify = {
+      url: "https://acme.example/products/hero",
+      name: "Hero",
+      brand: null,
+      currentPrice: 1,
+      currency: "BRL",
+      attributes: [],
+      variants: [],
+      inventoryAvailable: null,
+      image: null,
+    };
+    const skus = [
+      {
+        row: {
+          id: "sku-open",
+          product_id: "product-open",
+          shopify_data: { ...baseShopify, url: "https://acme.example/products/open", meta: openMeta },
+        },
+        product: { id: "product-open" },
+        prompts: [],
+      },
+      {
+        row: {
+          id: "sku-closed",
+          product_id: "product-closed",
+          shopify_data: { ...baseShopify, url: "https://acme.example/products/closed", meta: closedMeta },
+        },
+        product: { id: "product-closed" },
+        prompts: [],
+      },
+    ] as any;
+    const queries = [
+      {
+        sku_id: "sku-open",
+        cliente_foi_citado: false,
+        concorrente_citado_nome: "Competitor",
+        concorrente_citado_url: "https://competitor.example/p",
+      },
+    ] as any;
+
+    const result = selectPrimarySku(skus, queries);
+    expect(result.primary.row.id).toBe("sku-closed");
+    expect(result.selection).toMatchObject({
+      strategy: "closed_storefront_first",
+      selected_sku_id: "sku-closed",
     });
   });
 });
