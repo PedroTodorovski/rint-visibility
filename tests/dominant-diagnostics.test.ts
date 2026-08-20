@@ -510,4 +510,109 @@ describe("dominant triage", () => {
     expect(outcome.coherenceLevel).toBe("incoerente");
     expect(outcome.track).toBe("track_llm");
   });
+
+  it("routes N/N coherent with a competitor object to track_produto", () => {
+    const outcome = computeTriage({
+      skus: [{ id: "sku-1", shopify }],
+      queries: [
+        query(
+          {
+            cliente_foi_citado: true,
+            concorrente_citado_nome: "Other",
+            concorrente_citado_url: "https://other.example/p",
+            atributos_mencionados_gemini: [],
+            preco_citado: 99,
+            nome_marca_citada: "Outra Marca",
+            produto_mencionado: "Outro Produto",
+            objetos_citados: [
+              {
+                marca: "Outra Marca",
+                loja: "Other",
+                produto: "Outro Produto",
+                url: "https://other.example/p",
+                preco: 99,
+                moeda: "BRL",
+                dimensoes: null,
+                qualidade: null,
+                prazo_entrega: null,
+                avaliacao: null,
+                imagem_url: null,
+                atributos: [],
+              },
+            ],
+          },
+          { cliente_foi_citado: true },
+        ),
+      ],
+    });
+
+    expect(outcome.coherenceLevel).toBe("coerente");
+    expect(outcome.track).toBe("track_produto");
+    expect(outcome.checks.competitor_cited).toBe(true);
+  });
+
+  it("does not treat a competitor name without objetos_citados as track_produto", () => {
+    const outcome = computeTriage({
+      skus: [{ id: "sku-1", shopify }],
+      queries: [
+        query(
+          {
+            cliente_foi_citado: true,
+            concorrente_citado_nome: "Athletic Greens",
+            concorrente_citado_url: "https://drinkag1.com/products/ag1",
+            atributos_mencionados_gemini: [],
+            preco_citado: null,
+            nome_marca_citada: "Athletic Greens",
+            produto_mencionado: "AG1",
+            objetos_citados: [],
+          },
+          { cliente_foi_citado: true },
+        ),
+      ],
+    });
+
+    expect(outcome.coherenceLevel).toBe("coerente");
+    expect(outcome.track).toBe("track_pdp");
+    expect(outcome.checks.competitor_cited).toBe(false);
+  });
+
+  it("does not treat the client's own cited object as track_produto", () => {
+    const outcome = computeTriage({
+      skus: [{ id: "sku-1", shopify }],
+      queries: [
+        query(
+          {
+            cliente_foi_citado: true,
+            concorrente_citado_nome: null,
+            concorrente_citado_url: null,
+            atributos_mencionados_gemini: [],
+            preco_citado: 500,
+            nome_marca_citada: "Acme",
+            produto_mencionado: "Hero Sofa",
+            objetos_citados: [
+              {
+                marca: "Acme",
+                loja: "Acme",
+                produto: "Hero Sofa",
+                url: "https://acme.example/products/hero",
+                preco: 500,
+                moeda: "BRL",
+                dimensoes: null,
+                qualidade: null,
+                prazo_entrega: null,
+                avaliacao: null,
+                imagem_url: null,
+                atributos: [],
+              },
+            ],
+          },
+          { cliente_foi_citado: true },
+        ),
+      ],
+    });
+
+    expect(outcome.coherenceLevel).toBe("coerente");
+    expect(outcome.track).toBe("track_pdp");
+    expect(outcome.checks.competitor_cited).toBe(false);
+  });
 });

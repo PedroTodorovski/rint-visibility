@@ -538,3 +538,96 @@ describe("buildDiagnosticOutput track_llm first_action", () => {
     });
   });
 });
+
+describe("buildDiagnosticOutput track_produto first_action", () => {
+  const finance = {
+    ga4: { totalRevenue: 0, totalSessions: 0, bySource: [], meta },
+    shopify: { externalRef: "NUT000007", revenue: 0, orders: 0, ticketMedio: 348, meta },
+    meta: { externalRef: "NUT000007", spend: 0, conversions: 0, cac: 0, meta },
+    conversion: null,
+    googleAds: null,
+    merchantCenter: null,
+    trends: null,
+    seoGaps: [],
+  };
+
+  function ag1Query(text: string, extra?: Partial<DiagnosticQueryRow["gemini_structured"]>) {
+    return {
+      ...query(text, ["Certificação NSF"]),
+      cliente_foi_citado: true,
+      gemini_structured: {
+        ...emptyGeminiStructured(),
+        cliente_foi_citado: true,
+        concorrente_citado_nome: "Athletic Greens",
+        objetos_citados: [
+          {
+            ...emptyCitedObject(),
+            marca: "Athletic Greens",
+            produto: "AG1",
+            loja: "Athletic Greens",
+            url: "https://drinkag1.com/products/ag1",
+            preco: 99,
+            moeda: "USD",
+            prazo_entrega: "5 a 8 dias",
+            avaliacao: "4,8",
+            atributos: ["Certificação NSF", "75 vitaminas e minerais"],
+          },
+          ...(extra?.objetos_citados ?? []),
+        ],
+      },
+    };
+  }
+
+  it("emits product_brief from the crowned SKU, not min competitor price or the AG1 slogan", () => {
+    const cheaper = {
+      ...emptyCitedObject(),
+      marca: "Bloom",
+      produto: "Greens",
+      loja: "Amazon",
+      url: "https://www.amazon.com.br/bloom-greens",
+      preco: 49,
+      moeda: "BRL",
+      atributos: ["superfood powder"],
+    };
+    const output = buildDiagnosticOutput({
+      jobId: "job-1",
+      primarySku: sku,
+      skus: [sku],
+      queries: [
+        ag1Query("Melhor suplemento de greens no Brasil"),
+        ag1Query("Alternativa ao AG1 com vitaminas e minerais"),
+        ag1Query("suplemento greens em pó com CoQ10", { objetos_citados: [cheaper] }),
+      ],
+      track: "track_produto",
+      finance,
+    });
+
+    const next = output.diagnostic.next_steps;
+    expect(String(next.first_action)).not.toMatch(/A IA recomenda Athletic Greens/);
+    expect(String(next.headline)).not.toMatch(/A IA recomenda Athletic Greens/);
+    expect(String(next.first_action)).toMatch(/Não foi o preço nem o prazo/);
+    expect(String(next.first_action)).toContain("Athletic Greens AG1");
+    expect(String(next.first_action)).not.toMatch(/elegeu|aceite o gap|página do produto/);
+    expect(String(next.first_action)).toContain("Certificação NSF");
+    expect(next.support_line).toMatch(/Por que isso importa/);
+    expect(next.product_brief).toMatchObject({
+      surface: "sku_da_loja",
+      move: "aceitar_gap",
+      losing_dimension: "composicao",
+      crowned_name: "Athletic Greens AG1",
+      price_crowned: "US$ 99",
+      skip_attrs: ["Certificação NSF"],
+      target_url: "https://nuture.com.br/products/nuture-daily-boost",
+      contributions: [{ dimension: "composicao", role: "primary" }],
+    });
+    expect(
+      (output.diagnostic.causes as Array<{ type: string; competitor_price?: number }>).find(
+        (cause) => cause.type === "preco_nao_competitivo",
+      )?.competitor_price,
+    ).toBe(99);
+    expect(
+      output.diagnostic.causes.some((cause) => cause.type === "posicionamento_inadequado"),
+    ).toBe(false);
+    expect(output.diagnostic.actions).toEqual([]);
+  });
+});
