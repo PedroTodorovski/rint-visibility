@@ -6,6 +6,33 @@
  * into sentences — URLs and attrs on screen come from `content_brief`.
  */
 
+export type CatalogFoundationGap = "attributes" | "description";
+
+const MIN_USEFUL_ATTRIBUTES = 3;
+const MIN_DESCRIPTION_CHARS = 80;
+
+export function catalogFoundationFromFields(input: {
+  attributes: string[];
+  descriptionChars?: number | null;
+}): CatalogFoundationGap[] {
+  const gaps: CatalogFoundationGap[] = [];
+  if (input.attributes.filter((value) => value.trim().length > 0).length < MIN_USEFUL_ATTRIBUTES) {
+    gaps.push("attributes");
+  }
+  if (typeof input.descriptionChars === "number" && input.descriptionChars < MIN_DESCRIPTION_CHARS) {
+    gaps.push("description");
+  }
+  return gaps;
+}
+
+export function catalogFoundationGaps(
+  gaps: readonly string[] | null | undefined,
+): CatalogFoundationGap[] {
+  return (gaps ?? []).filter(
+    (gap): gap is CatalogFoundationGap => gap === "attributes" || gap === "description",
+  );
+}
+
 export type LlmContentBriefInput = {
   skuName: string;
   brand: string | null;
@@ -17,6 +44,12 @@ export type LlmContentBriefInput = {
   existingContentSurface?: "owned_content_directory" | "owned_content_subdomain" | null;
   searchConsoleCoverage?: "covered" | "not_covered" | "unknown";
   targetUrlSource?: "grounding" | "search_console" | null;
+  catalogGaps?: CatalogFoundationGap[];
+  productUrl?: string | null;
+  /** Hypothesis B: cited client object, price or brand ≠ Admin. */
+  incoherent?: boolean;
+  /** Named in the answer; grounding hosts are not the storefront. */
+  sourcesWithoutStore?: boolean;
 };
 
 export type LlmContentBrief = {
@@ -27,7 +60,8 @@ export type LlmContentBrief = {
   page_type: "landing_editorial_comparativa";
   surface:
     | "nova_landing_editorial_no_dominio_nao_pdp"
-    | "url_editorial_existente_no_dominio_nao_pdp";
+    | "url_editorial_existente_no_dominio_nao_pdp"
+    | "cadastro_shopify_antes_da_landing";
   target_url: string | null;
   target_url_source: "grounding" | "search_console" | null;
   existing_content_surface: "owned_content_directory" | "owned_content_subdomain" | null;
@@ -35,6 +69,10 @@ export type LlmContentBrief = {
   use_attrs: string[];
   skip_attrs: string[];
   grounding_note: "review_not_listing" | null;
+  catalog_first: boolean;
+  catalog_gaps: CatalogFoundationGap[];
+  incoherent?: boolean;
+  sourcesWithoutStore?: boolean;
 };
 
 const STOP = new Set([
@@ -259,9 +297,20 @@ export function splitOwnVsRivalAttrs(
   };
 }
 
+export function catalogGapPhrase(gaps: CatalogFoundationGap[]): string {
+  const hasDesc = gaps.includes("description");
+  const hasAttrs = gaps.includes("attributes");
+  if (hasDesc && hasAttrs) return "a descrição e os atributos técnicos";
+  if (hasDesc) return "a descrição";
+  if (hasAttrs) return "os atributos técnicos";
+  return "a descrição e os atributos técnicos";
+}
+
 export function formulateTrackLlmFirstAction(input: LlmContentBriefInput): LlmContentBrief {
   const theme = themeFromQuerySet(input.queryTexts, input.skuName, input.brand);
-  const useAttrs = input.unusedOwnAttrs.slice(0, 2);
+  const catalogGaps = catalogFoundationGaps(input.catalogGaps);
+  const catalogFirst = catalogGaps.length > 0 && !input.incoherent;
+  const useAttrs = catalogFirst ? [] : input.unusedOwnAttrs.slice(0, 2);
   const skip =
     input.skipAttrs.find((attr) => /nsf|selo|certif|estudo|vegan/i.test(attr)) ??
     input.skipAttrs[0] ??
@@ -271,25 +320,56 @@ export function formulateTrackLlmFirstAction(input: LlmContentBriefInput): LlmCo
   const skipLine = skip ? ` Não escreva ${skip} — o ${input.skuName} não tem.` : "";
   const grounding_note = input.readReviewOrRivalStore ? ("review_not_listing" as const) : null;
   const why = grounding_note ? " A IA leu review e a loja de outra marca, não a sua ficha." : "";
-  const targetUrl = input.existingContentUrl?.trim() || null;
-  const action = targetUrl
-    ? `Melhore esta landing editorial/comparativa já existente: ${targetUrl}. Use o que a loja já tem: ${use}. Reforce o link para ${input.skuName}.${skipLine}${why}`
+  const existingUrl = input.existingContentUrl?.trim() || null;
+  const productUrl = input.productUrl?.trim() || null;
+  if (catalogFirst) {
+    const what = catalogGapPhrase(catalogGaps);
+    const where = productUrl ? `: ${productUrl}` : "";
+    const later = existingUrl
+      ? ` Com o cadastro em ordem, melhore o guia no domínio da loja.`
+      : ` Com o cadastro em ordem, crie uma landing editorial/comparativa no domínio da loja, com URL própria fora da PDP, sobre ${theme}.`;
+    return {
+      theme,
+      sku_name: input.skuName,
+      brand: input.brand,
+      page_type: "landing_editorial_comparativa",
+      surface: "cadastro_shopify_antes_da_landing",
+      target_url: productUrl,
+      target_url_source: null,
+      existing_content_surface: existingUrl ? (input.existingContentSurface ?? null) : null,
+      search_console_coverage: input.searchConsoleCoverage ?? "unknown",
+      use_attrs: useAttrs,
+      skip_attrs: skipAttrs,
+      grounding_note,
+      catalog_first: true,
+      catalog_gaps: catalogGaps,
+      incoherent: Boolean(input.incoherent),
+      sourcesWithoutStore: Boolean(input.sourcesWithoutStore),
+      first_action: `Complete no Shopify ${what} de ${input.skuName}${where} — o cadastro é a base; sem isso um guia novo não tem o que dizer.${later}${skipLine}${why}`,
+    };
+  }
+  const action = existingUrl
+    ? `Melhore esta landing editorial/comparativa já existente: ${existingUrl}. Use o que a loja já tem: ${use}. Reforce o link para ${input.skuName}.${skipLine}${why}`
     : `Crie uma landing editorial/comparativa no domínio da loja, com URL própria fora da PDP, sobre ${theme}. Use o que a loja já tem: ${use}. Inclua um link para ${input.skuName}.${skipLine}${why}`;
   return {
     theme,
     sku_name: input.skuName,
     brand: input.brand,
     page_type: "landing_editorial_comparativa",
-    surface: targetUrl
+    surface: existingUrl
       ? "url_editorial_existente_no_dominio_nao_pdp"
       : "nova_landing_editorial_no_dominio_nao_pdp",
-    target_url: targetUrl,
-    target_url_source: targetUrl ? (input.targetUrlSource ?? null) : null,
-    existing_content_surface: targetUrl ? (input.existingContentSurface ?? null) : null,
+    target_url: existingUrl,
+    target_url_source: existingUrl ? (input.targetUrlSource ?? null) : null,
+    existing_content_surface: existingUrl ? (input.existingContentSurface ?? null) : null,
     search_console_coverage: input.searchConsoleCoverage ?? "unknown",
     use_attrs: useAttrs,
     skip_attrs: skipAttrs,
     grounding_note,
+    catalog_first: false,
+    catalog_gaps: [],
+    incoherent: Boolean(input.incoherent),
+    sourcesWithoutStore: Boolean(input.sourcesWithoutStore),
     first_action: action,
   };
 }

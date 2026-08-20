@@ -5,6 +5,17 @@
 
 export type PdpAdminGap = "attributes" | "description" | "physical" | "image_alt";
 
+/** Description + technical attrs are the catalog basis. Alt/physical do not gate the week's LLM action. */
+export type CatalogFoundationGap = "attributes" | "description";
+
+export function catalogFoundationGaps(
+  gaps: readonly PdpAdminGap[] | null | undefined,
+): CatalogFoundationGap[] {
+  return (gaps ?? []).filter(
+    (gap): gap is CatalogFoundationGap => gap === "attributes" || gap === "description",
+  );
+}
+
 export type PdpAdminAssessment = {
   attributeCount: number;
   descriptionChars: number;

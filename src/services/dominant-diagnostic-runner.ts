@@ -10,6 +10,7 @@ import {
   mergeFollowUpCitedObjects,
   planCitedOfferFollowUp,
 } from "../lib/cited-offer.js";
+import { resolveCitedOfferImage, stampStructuredCitedImage } from "../lib/cited-offer-image.js";
 import { AppError } from "../lib/errors.js";
 import { bindGroundingSupports } from "../lib/gemini-grounding.js";
 import { resolveDiagnosticGrounding } from "../lib/grounding-resolve.js";
@@ -509,6 +510,54 @@ async function completeCitedOffers(input: {
   return { drafts: input.drafts, followUps };
 }
 
+async function hydrateCitedOfferImages(input: {
+  skuRows: Array<{ row: DiagnosticSkuRow }>;
+  drafts: QueryDraft[];
+}): Promise<QueryDraft[]> {
+  const bySku = new Map<string, QueryDraft[]>();
+  for (const draft of input.drafts) {
+    const list = bySku.get(draft.sku_id) ?? [];
+    list.push(draft);
+    bySku.set(draft.sku_id, list);
+  }
+
+  for (const sku of input.skuRows) {
+    const skuDrafts = bySku.get(sku.row.id);
+    if (!skuDrafts?.length) continue;
+    if (skuDrafts.every(isDayPhotoCopy)) continue;
+    const objectsByQuery = skuDrafts.map((draft) =>
+      citedObjectsFromStructured(draft.gemini_structured),
+    );
+    const crown = crownCompetitorSku({
+      client: {
+        name: sku.row.shopify_data.name,
+        brand: sku.row.shopify_data.brand,
+        url: sku.row.url,
+      },
+      objectsByQuery,
+    });
+    if (crown.confidence !== "clear" || !crown.productKey) continue;
+    const groundingUrls = skuDrafts.flatMap((draft) => {
+      const executions = (draft.executions ?? []) as Array<{ grounding_urls?: string[] }>;
+      return executions.flatMap((execution) => execution.grounding_urls ?? []);
+    });
+    const hit = await resolveCitedOfferImage({
+      imagemUrl: crown.imagem_url,
+      productUrl: crown.url,
+      groundingUrls,
+    });
+    if (!hit) continue;
+    for (const draft of skuDrafts) {
+      draft.gemini_structured = stampStructuredCitedImage(
+        draft.gemini_structured,
+        crown.productKey,
+        hit.url,
+      );
+    }
+  }
+  return input.drafts;
+}
+
 async function sendWebhook(input: {
   webhookUrl: string | null;
   payload: Record<string, unknown>;
@@ -634,8 +683,12 @@ export async function runDominantDiagnostic(
       llm: deps.llm,
       config: runConfig,
     });
+    const imagedDrafts = await hydrateCitedOfferImages({
+      skuRows,
+      drafts: completed.drafts,
+    });
     const queryRows: DiagnosticQueryRow[] = [];
-    for (const draft of completed.drafts) {
+    for (const draft of imagedDrafts) {
       queryRows.push(await deps.repos.diagnosticQueries.create(draft));
     }
 
@@ -740,6 +793,7 @@ export async function runDominantDiagnostic(
         skus: skuRows.map((sku) => sku.row),
         queries: queryRows,
         track: triage.track,
+        coherenceLevel: triage.coherenceLevel,
         finance,
       });
 

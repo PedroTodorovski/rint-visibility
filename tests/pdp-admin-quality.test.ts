@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { assessPdpAdminQuality, plainTextLength } from "../src/lib/pdp-admin-quality.js";
+import { assessPdpAdminQuality, catalogFoundationGaps, plainTextLength } from "../src/lib/pdp-admin-quality.js";
 
 describe("assessPdpAdminQuality", () => {
   it("flags thin Admin catalogs with sparse attributes and short description", () => {
@@ -36,5 +36,13 @@ describe("assessPdpAdminQuality", () => {
 
   it("strips HTML when measuring description length", () => {
     expect(plainTextLength("<p>Olá <strong>mundo</strong></p>")).toBe("Olá mundo".length);
+  });
+
+  it("treats only description and attributes as the catalog foundation", () => {
+    expect(catalogFoundationGaps(["image_alt", "physical"])).toEqual([]);
+    expect(catalogFoundationGaps(["attributes", "image_alt", "description"])).toEqual([
+      "attributes",
+      "description",
+    ]);
   });
 });

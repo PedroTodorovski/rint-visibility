@@ -1,9 +1,10 @@
 /**
  * Dominant-track routing for the diagnostic **job** snapshot.
- * Map (engine vs UI vs original 3.Triage print): rint-app/docs/DIAGNOSIS-DOMINANT.md
+ * Map: rint-app/docs/DIAGNOSIS-DOMINANT.md
  *
- * 0/N citation → track_produto (or track_midia if waste). The report may override
- * per SKU via diagnosisTrackForSku (0/N → track_llm).
+ * Citation gap (0/N or 1–N-1/N) → track_llm. Same as the report (`diagnosisTrackForSku`).
+ * Closed URL still wins first (track_pdp). Hard price/brand mismatch on the client object
+ * is also track_llm.
  */
 
 import { citedObjectsFromStructured, isCitedClientObject } from "../lib/llm/gemini-structured.js";
@@ -142,6 +143,9 @@ export function computeTriage(input: TriageInput): TriageOutcome {
   }
 
   const clientCited = input.queries.some((query) => query.cliente_foi_citado);
+  const citationTotal = input.queries.length;
+  const citationClient = input.queries.filter((query) => query.cliente_foi_citado).length;
+  const citationGap = citationTotal > 0 && citationClient < citationTotal;
   const competitorCited = input.queries.some(
     (query) => query.concorrente_citado_nome || query.concorrente_citado_url,
   );
@@ -157,11 +161,13 @@ export function computeTriage(input: TriageInput): TriageOutcome {
     track = "track_pdp";
   } else if (coherenceLevel === "incoerente") {
     track = "track_llm";
+  } else if (citationGap) {
+    track = "track_llm";
   } else if (coherenceLevel === "parcialmente_coerente") {
     track = "track_pdp";
-  } else if (!clientCited && hasMediaWaste(input.mediaSignals)) {
+  } else if (hasMediaWaste(input.mediaSignals)) {
     track = "track_midia";
-  } else if (!clientCited || competitorCited) {
+  } else if (competitorCited) {
     track = "track_produto";
   } else {
     track = "track_pdp";

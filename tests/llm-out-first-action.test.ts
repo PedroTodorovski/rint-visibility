@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  catalogFoundationFromFields,
   formulateTrackLlmFirstAction,
   themeFromQuerySet,
 } from "../src/services/llm-out-first-action.js";
@@ -96,6 +97,66 @@ describe("formulateTrackLlmFirstAction", () => {
   it("falls back to the SKU name when the set has no shared product phrase", () => {
     const theme = themeFromQuerySet(["vale a pena", "comparar preços"], "Hero Sofa", "Acme");
     expect(theme).toBe("Hero Sofa");
+  });
+
+  it("leads with Shopify cadastro when description or attributes are missing", () => {
+    const brief = formulateTrackLlmFirstAction({
+      skuName: "Nuture Daily Boost",
+      brand: "Nuture",
+      queryTexts: DAILY_QUERIES,
+      unusedOwnAttrs: ["Sabor refrescante"],
+      skipAttrs: ["Certificação NSF"],
+      readReviewOrRivalStore: true,
+      existingContentUrl: "https://nuture.com.br/blog/greens-em-po",
+      existingContentSurface: "owned_content_directory",
+      searchConsoleCoverage: "covered",
+      targetUrlSource: "search_console",
+      catalogGaps: ["attributes", "description"],
+      productUrl: "https://nuture.com.br/products/nuture-daily-boost",
+    });
+
+    expect(brief.catalog_first).toBe(true);
+    expect(brief.surface).toBe("cadastro_shopify_antes_da_landing");
+    expect(brief.target_url).toBe("https://nuture.com.br/products/nuture-daily-boost");
+    expect(brief.target_url_source).toBeNull();
+    expect(brief.use_attrs).toEqual([]);
+    expect(brief.first_action).toContain("Complete no Shopify");
+    expect(brief.first_action).toContain("descrição e os atributos técnicos");
+    expect(brief.first_action).toContain("cadastro é a base");
+    expect(brief.first_action).not.toContain("Melhore esta landing editorial/comparativa");
+    expect(brief.first_action).toContain("Com o cadastro em ordem");
+    expect(brief.first_action).toContain("melhore o guia");
+    expect(brief.first_action).not.toContain("nesta página");
+  });
+
+  it("does not start at Shopify when the cited object is incoherent, even if the catalog is thin", () => {
+    const brief = formulateTrackLlmFirstAction({
+      skuName: "Nuture Daily Boost",
+      brand: "Nuture",
+      queryTexts: DAILY_QUERIES,
+      unusedOwnAttrs: ["Sabor refrescante"],
+      skipAttrs: ["Certificação NSF"],
+      readReviewOrRivalStore: true,
+      existingContentUrl: "https://nuture.com.br/blog/greens-em-po",
+      existingContentSurface: "owned_content_directory",
+      catalogGaps: ["attributes", "description"],
+      productUrl: "https://nuture.com.br/products/nuture-daily-boost",
+      incoherent: true,
+    });
+
+    expect(brief.catalog_first).toBe(false);
+    expect(brief.incoherent).toBe(true);
+    expect(brief.first_action).not.toContain("Complete no Shopify");
+    expect(brief.first_action).toContain("https://nuture.com.br/blog/greens-em-po");
+  });
+});
+
+describe("catalogFoundationFromFields", () => {
+  it("ignores an unread description length", () => {
+    expect(catalogFoundationFromFields({ attributes: ["a", "b", "c"] })).toEqual([]);
+    expect(
+      catalogFoundationFromFields({ attributes: ["Greens"], descriptionChars: 24 }),
+    ).toEqual(["attributes", "description"]);
   });
 });
 

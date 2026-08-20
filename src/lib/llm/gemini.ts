@@ -251,8 +251,9 @@ Rules:
 - Do not add markdown.
 - Use null or [] when the quoted answer and grounding did not state the fact. Do not invent.
 - objetos_citados: one entry per distinct product or store named in the quoted answer or grounding.
-- Put a fact on that object only (price, dimensions, quality, delivery time, rating, attributes). Copy the phrase as stated; do not normalize into a scale you did not see.
+- Put a fact on that object only (price, dimensions, quality, delivery time, rating, image URL, attributes). Copy the phrase as stated; do not normalize into a scale you did not see.
 - Preserve URL only when it is explicit in the quoted answer or grounding.
+- imagem_url only when the quoted answer or grounding contains an explicit http(s) image URL. Do not guess a CDN path.
 - Do not infer a price if no price is cited.
 - atributos are characteristics of THAT object only (material, color, size, warranty, etc.).
 - Singular fields stay for compatibility: primary cited object, or the competitor if the client was not cited.
@@ -274,6 +275,10 @@ function buildFounderActionCopyPrompt(input: {
     brief.grounding_note === "review_not_listing"
       ? "A IA buscou essa resposta em review, blog ou loja de outra marca."
       : "";
+  const catalogFirst = brief.catalog_first === true;
+  const catalogGaps = Array.isArray(brief.catalog_gaps)
+    ? brief.catalog_gaps.filter((gap) => gap === "attributes" || gap === "description").join(" | ")
+    : "";
   return `Você é a camada final de redação do Rint para um fundador de e-commerce leigo.
 
 Tarefa: escreva uma orientação em português do Brasil, clara, humana e direta.
@@ -287,19 +292,26 @@ REGRAS INEGOCIÁVEIS:
 - Não use markdown, bullets, título ou JSON.
 - Retorne apenas um parágrafo curto, com 2 a 5 frases.
 - A resposta final precisa ter pelo menos 80 caracteres.
-
+${
+  catalogFirst
+    ? `- catalog_first: a PRIMEIRA frase deve ser completar no Shopify só o que falta (${catalogGaps || "descrição e/ou atributos técnicos"}). Só depois mencione o guia. Não comece pedindo blog ou landing nova.
+`
+    : ""
+}
 CHECKLIST OBRIGATÓRIO ANTES DE RESPONDER:
 - placeholder [URL_ALVO] presente, se houver target_url.
 - sku_name presente.
 - use_attrs presentes literalmente.
 - skip_attrs citados apenas com negação.
-
+${catalogFirst ? "- a palavra cadastro ou Shopify aparece na primeira metade do texto.\n" : ""}
 Dados fechados:
 - target_url: ${targetUrl || "nenhuma"}
 - sku_name: ${skuName}
 - theme: ${theme}
 - use_attrs: ${useAttrs || "nenhum"}
 - skip_attrs: ${skipAttrs || "nenhum"}
+- catalog_first: ${catalogFirst ? "sim" : "não"}
+- catalog_gaps: ${catalogGaps || "nenhum"}
 - contexto: ${note || "sem contexto adicional"}
 
 Frase técnica atual:

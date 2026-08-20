@@ -17,11 +17,29 @@ const snapshot: ShopifyProductSnapshot = {
   brand: "Nuture",
   currentPrice: 348,
   currency: "BRL",
-  attributes: ["59 vitaminas, minerais, bioativos e vegetais", "2 scoops (10 g) ao dia"],
+  attributes: [
+    "59 vitaminas, minerais, bioativos e vegetais",
+    "2 scoops (10 g) ao dia",
+    "30 porções",
+  ],
   variants: [],
   inventoryAvailable: null,
   image: null,
-  meta: { source: "test", fetchedAt: "2026-08-18T00:00:00.000Z" },
+  descriptionChars: 280,
+  meta: {
+    source: "test",
+    fetchedAt: "2026-08-18T00:00:00.000Z",
+    admin: {
+      attributeCount: 3,
+      descriptionChars: 280,
+      hasMaterial: true,
+      hasColor: false,
+      hasDimension: false,
+      hasImageAlt: true,
+      thin: false,
+      gaps: [],
+    },
+  },
 };
 
 const sku: DiagnosticSkuRow = {
@@ -267,5 +285,254 @@ describe("buildDiagnosticOutput track_llm first_action", () => {
       search_console_coverage: "covered",
     });
     expect(output.diagnostic.next_steps.support_line).toContain("Search Console");
+  });
+
+  it("leads the week action with Shopify cadastro when the Admin foundation is empty", () => {
+    const thinSku = {
+      ...sku,
+      shopify_data: {
+        ...snapshot,
+        attributes: ["Greens"],
+        descriptionChars: 12,
+        meta: {
+          ...snapshot.meta,
+          admin: {
+            attributeCount: 1,
+            descriptionChars: 12,
+            hasMaterial: false,
+            hasColor: false,
+            hasDimension: false,
+            hasImageAlt: false,
+            thin: true,
+            gaps: ["attributes", "description"] as Array<
+              "attributes" | "description" | "physical" | "image_alt"
+            >,
+          },
+        },
+      },
+    };
+    const output = buildDiagnosticOutput({
+      jobId: "job-1",
+      primarySku: thinSku,
+      skus: [thinSku],
+      queries: [
+        query("Melhor suplemento de greens no Brasil", ["Certificação NSF"]),
+        query("Alternativa ao AG1 com vitaminas e minerais", ["75 vitaminas e minerais"]),
+        query("suplemento greens em pó com CoQ10", ["1 scoop por dia"]),
+        query("Nuture Daily Boost vale a pena", []),
+        query("Nuture Daily Boost vs AG1", ["Certificação NSF"]),
+      ],
+      track: "track_llm",
+      finance: {
+        ga4: { totalRevenue: 0, totalSessions: 0, bySource: [], meta },
+        shopify: { externalRef: "NUT000007", revenue: 0, orders: 0, ticketMedio: 0, meta },
+        meta: { externalRef: "NUT000007", spend: 0, conversions: 0, cac: 0, meta },
+        conversion: null,
+        googleAds: null,
+        merchantCenter: null,
+        trends: null,
+        seoGaps: [],
+      },
+    });
+
+    expect(String(output.diagnostic.next_steps.first_action)).toContain("Complete no Shopify");
+    expect(String(output.diagnostic.next_steps.first_action)).toContain(
+      "https://nuture.com.br/products/nuture-daily-boost",
+    );
+    expect(String(output.diagnostic.next_steps.first_action)).not.toContain(
+      "Melhore esta landing editorial/comparativa",
+    );
+    expect(output.diagnostic.next_steps.content_brief).toMatchObject({
+      surface: "cadastro_shopify_antes_da_landing",
+      catalog_first: true,
+      target_url: "https://nuture.com.br/products/nuture-daily-boost",
+    });
+    expect(output.diagnostic.next_steps.support_line).toContain("cadastro é a base");
+  });
+
+  it("does not treat a missing description length as an empty catalog", () => {
+    const unreadSku = {
+      ...sku,
+      shopify_data: {
+        ...snapshot,
+        descriptionChars: undefined,
+        meta: {
+          ...snapshot.meta,
+          ownedSurfaces: {
+            storefrontHosts: ["nuture.com.br"],
+            ownedContentPaths: ["/blog"],
+            searchConsoleProperties: [{ type: "domain" as const, domain: "nuture.com.br" }],
+            ownedContentCandidates: [
+              {
+                url: "https://nuture.com.br/blog/greens-em-po",
+                property: "sc-domain:nuture.com.br",
+                clicks: 118,
+                impressions: 4120,
+                topQuery: "greens em pó no brasil",
+              },
+            ],
+          },
+        },
+      },
+    };
+    const output = buildDiagnosticOutput({
+      jobId: "job-1",
+      primarySku: unreadSku,
+      skus: [unreadSku],
+      queries: [
+        query("Melhor suplemento de greens no Brasil", ["Certificação NSF"]),
+        query("Alternativa ao AG1 com vitaminas e minerais", ["75 vitaminas e minerais"]),
+        query("suplemento greens em pó com CoQ10", ["1 scoop por dia"]),
+        query("Nuture Daily Boost vale a pena", []),
+        query("Nuture Daily Boost vs AG1", ["Certificação NSF"]),
+      ],
+      track: "track_llm",
+      finance: {
+        ga4: { totalRevenue: 0, totalSessions: 0, bySource: [], meta },
+        shopify: { externalRef: "NUT000007", revenue: 0, orders: 0, ticketMedio: 0, meta },
+        meta: { externalRef: "NUT000007", spend: 0, conversions: 0, cac: 0, meta },
+        conversion: null,
+        googleAds: null,
+        merchantCenter: null,
+        trends: null,
+        seoGaps: [],
+      },
+    });
+
+    expect(output.diagnostic.next_steps.content_brief).toMatchObject({
+      catalog_first: false,
+      surface: "url_editorial_existente_no_dominio_nao_pdp",
+      target_url: "https://nuture.com.br/blog/greens-em-po",
+    });
+    expect(String(output.diagnostic.next_steps.first_action)).toContain(
+      "https://nuture.com.br/blog/greens-em-po",
+    );
+  });
+
+  const gscSku = {
+    ...sku,
+    shopify_data: {
+      ...snapshot,
+      meta: {
+        ...snapshot.meta,
+        ownedSurfaces: {
+          storefrontHosts: ["nuture.com.br"],
+          ownedContentPaths: ["/blog"],
+          searchConsoleProperties: [{ type: "domain" as const, domain: "nuture.com.br" }],
+          ownedContentCandidates: [
+            {
+              url: "https://nuture.com.br/blog/greens-em-po",
+              property: "sc-domain:nuture.com.br",
+              clicks: 118,
+              impressions: 4120,
+              topQuery: "greens em pó no brasil",
+            },
+          ],
+        },
+      },
+    },
+  };
+  const emptyFinance = {
+    ga4: { totalRevenue: 0, totalSessions: 0, bySource: [], meta },
+    shopify: { externalRef: "NUT000007", revenue: 0, orders: 0, ticketMedio: 0, meta },
+    meta: { externalRef: "NUT000007", spend: 0, conversions: 0, cac: 0, meta },
+    conversion: null,
+    googleAds: null,
+    merchantCenter: null,
+    trends: null,
+    seoGaps: [],
+  };
+
+  it("leads with the mismatch when the cited client object is incoherent", () => {
+    const cited = {
+      ...query("Nuture Daily Boost vale a pena", ["59 vitaminas, minerais, bioativos e vegetais"], [
+        "https://nuture.com.br/blog/greens-em-po",
+      ]),
+      cliente_foi_citado: true,
+      concorrente_citado_nome: null,
+      concorrente_citado_url: null,
+      gemini_structured: {
+        ...emptyGeminiStructured(),
+        cliente_foi_citado: true,
+        objetos_citados: [
+          {
+            ...emptyCitedObject(),
+            marca: "Nuture",
+            produto: "Daily Boost",
+            url: snapshot.url,
+            preco: 99,
+            moeda: "BRL",
+            atributos: ["59 vitaminas, minerais, bioativos e vegetais"],
+          },
+        ],
+      },
+    };
+    const output = buildDiagnosticOutput({
+      jobId: "job-1",
+      primarySku: gscSku,
+      skus: [gscSku],
+      queries: [cited],
+      track: "track_llm",
+      coherenceLevel: "incoerente",
+      finance: emptyFinance,
+    });
+
+    expect(output.diagnostic.next_steps.content_brief).toMatchObject({
+      incoherent: true,
+      catalog_first: false,
+      target_url: "https://nuture.com.br/blog/greens-em-po",
+    });
+    expect(output.diagnostic.next_steps.support_line).toContain("já te citou");
+  });
+
+  it("leads with named-without-store when the answer names the brand and grounding skipped the shopfront", () => {
+    const named = {
+      ...query("Melhor suplemento de greens no Brasil", ["Certificação NSF"]),
+      gemini_raw:
+        "A busca cita a Nuture como alternativa, mas aponta o AG1 da Athletic Greens para comprar.",
+    };
+    const output = buildDiagnosticOutput({
+      jobId: "job-1",
+      primarySku: gscSku,
+      skus: [gscSku],
+      queries: [named],
+      track: "track_llm",
+      finance: emptyFinance,
+    });
+
+    expect(output.diagnostic.next_steps.content_brief).toMatchObject({
+      sourcesWithoutStore: true,
+      catalog_first: false,
+      target_url: "https://nuture.com.br/blog/greens-em-po",
+    });
+    expect(output.diagnostic.next_steps.support_line).toContain("já sabe o nome");
+  });
+
+  it("flags named-without-store from execution raw text when gemini_raw is empty", () => {
+    const named = {
+      ...query("Melhor suplemento de greens no Brasil", ["Certificação NSF"]),
+      gemini_raw: null,
+      executions: [
+        {
+          raw_text:
+            "A busca cita a Nuture como alternativa, mas aponta o AG1 da Athletic Greens para comprar.",
+          grounding_urls: ["https://www.healthline.com/ag1", "https://drinkag1.com/products/ag1"],
+          citation: { grounding_hosts: ["healthline.com", "drinkag1.com"] },
+        },
+      ],
+    };
+    const output = buildDiagnosticOutput({
+      jobId: "job-1",
+      primarySku: gscSku,
+      skus: [gscSku],
+      queries: [named],
+      track: "track_llm",
+      finance: emptyFinance,
+    });
+
+    expect(output.diagnostic.next_steps.content_brief).toMatchObject({
+      sourcesWithoutStore: true,
+      catalog_first: false,
+    });
   });
 });
