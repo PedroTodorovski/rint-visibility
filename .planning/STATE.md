@@ -13,10 +13,10 @@ progress:
 ## Current Position
 
 - **Phase:** 1 — MVP 2026 (lacuna de receita)
-- **Branch:** `feat/pdp-week-judge`
-- **Shipped this slice:** recados de Página — juiz determinístico (`judgePageWeek` → `page_brief`). Porta / ficha na rua / loja≠URL. Admin magro é Conteúdo. Job não aborta quando o produto não está no Admin ligado. Marketplace não é loja≠URL.
-- **Already on main:** sete recados de Produto. sete recados de Conteúdo. Porta da URL (`isLikelyPdpUrl`, #39). Prova vazia falha fechado. Foto do dia. Follow-up de compra só se o **storefront** falta. `objetos_citados`. `first_action` / `content_brief` em `track_llm`. GA4: `sessoesAi` + top-K `sessoesAiLandings` (#31).
-- **Next:** chips de Mídia ainda *A preencher*.
+- **Branch:** `main` (uncommitted: closed storefront must not fail as `shopper_evidence_missing`)
+- **Shipped this slice:** loja com senha/bloqueio não aborta o job por prova vazia. Gemini é pulado nessa URL; `track_pdp` / `abrir_senha` sai mesmo sem Shopify ligado. Página aberta + Gemini oco continua falha.
+- **Already on main:** recados de Página (`judgePageWeek`, #42). Meta por último (#43). sete recados de Produto. sete recados de Conteúdo.
+- **Next:** deploy motor → re-rodar snowboard com senha em produção.
 
 ## Repo boundaries
 
@@ -27,7 +27,7 @@ progress:
 
 ## Decisions Log
 
-- 2026-08-20: **Juízo da semana (Página)** — `judgePageWeek` é regra pura (porta → match painel↔URL → ficha na rua). Um `move`. Frase em molde (`page_brief`). Sem segundo Gemini; sem lista de SEO. Ficha fraca = Conteúdo. Shopify ligado sem este SKU = Página (não aborta). Marketplace não é este recado. Contrato: `rint-app/docs/DIAGNOSIS-DOMINANT.md`.
+- 2026-08-20: **Porta fechada não espera Gemini** — `password` / `blocked` pulam o probe; job conclui `track_pdp` (`abrir_senha` / `tirar_bloqueio`). Prova vazia só aborta loja aberta/não verificada. Envelope de Página também sem Shopify ligado. Contrato: `rint-app/docs/DIAGNOSIS-DOMINANT.md` § 3.2.
 - 2026-08-20: **Juízo da semana (Produto)** — `judgeProductWeek` é regra pura; `product_brief` / `first_action` saem do molde. Sem segundo Gemini. Ouro Nuture = NSF, não preço. Contrato: `rint-app/docs/DIAGNOSIS-DOMINANT.md`.
 - 2026-08-20: **0/N e parcial → Conteúdo no job** — `computeTriage` alinha com a tela. `incoherent` e `sourcesWithoutStore` entram no `content_brief`. Cadastro primeiro continua. Contrato: `rint-app/docs/DIAGNOSIS-DOMINANT.md`, `DIAGNOSIS-PREVIEW-SCENARIOS.md`.
 - 2026-08-19: **Prova vazia falha fechado** — execução de provedor habilitado tem texto de comprador visível ou é falha. Quirk Gemini (`thinkingBudget: 0`, teto 8192, parts visíveis) fica no adapter. Foto do dia não reusa oco. ChatGPT/Perplexity no mesmo job depois; sem HTTP neste slice.

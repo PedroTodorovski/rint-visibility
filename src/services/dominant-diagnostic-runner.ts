@@ -57,7 +57,7 @@ import {
 } from "./diagnostic-input.js";
 import { providersFromIntegrationConfig } from "./diagnostic-job-summary.js";
 import { buildCitationFinancialRisks, buildDiagnosticOutput } from "./diagnostic-output.js";
-import { computeTriage } from "./diagnostic-triage.js";
+import { computeTriage, publicStorefrontUnreadable } from "./diagnostic-triage.js";
 import {
   type DiagnosticPlan,
   type DiagnosticRunConfig,
@@ -119,6 +119,25 @@ function majority<T>(items: T[], key: (item: T) => string | null): string | null
     counts.set(value, (counts.get(value) ?? 0) + 1);
   }
   return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+}
+
+export function selectPrimarySku(
+  skus: Array<{ row: DiagnosticSkuRow; product: ProductRow; prompts: PromptRow[] }>,
+  queries: DiagnosticQueryRow[],
+): ReturnType<typeof selectDominantSku> {
+  const closed = skus.find((sku) => publicStorefrontUnreadable(sku.row.shopify_data));
+  if (closed) {
+    return {
+      primary: closed,
+      selection: {
+        strategy: "closed_storefront_first",
+        scope: "dominant_sku_within_cluster",
+        selected_sku_id: closed.row.id,
+        selected_product_id: closed.product.id,
+      },
+    };
+  }
+  return selectDominantSku(skus, queries);
 }
 
 export function selectDominantSku(
@@ -661,22 +680,41 @@ export async function runDominantDiagnostic(
       skuRows.push({ row, product, prompts: promptsByProduct.get(product.id) ?? [] });
     }
 
-    const queryWork = skuRows.flatMap((sku) =>
-      sku.prompts.map((prompt) => ({ sku: sku.row, prompt })),
+    const storefrontClosed = skuRows.some((sku) =>
+      publicStorefrontUnreadable(sku.row.shopify_data),
     );
-    const queryDrafts = await mapPool(
-      queryWork,
-      deps.config.diagnosticQueryConcurrency,
-      async ({ sku, prompt }) =>
-        executeQuery({
-          store,
-          sku,
-          prompt,
-          llm: deps.llm,
-          config: runConfig,
-          dayPhotos,
-        }),
-    );
+    // Closed door is already the week's cause — do not wait on shopper text.
+    const queryWork = skuRows.flatMap((sku) => {
+      if (publicStorefrontUnreadable(sku.row.shopify_data)) return [];
+      return sku.prompts.map((prompt) => ({ sku: sku.row, prompt }));
+    });
+    const queryDrafts = (
+      await mapPool(
+        queryWork,
+        deps.config.diagnosticQueryConcurrency,
+        async ({ sku, prompt }): Promise<QueryDraft | null> => {
+          try {
+            return await executeQuery({
+              store,
+              sku,
+              prompt,
+              llm: deps.llm,
+              config: runConfig,
+              dayPhotos,
+            });
+          } catch (error) {
+            if (
+              storefrontClosed &&
+              error instanceof Error &&
+              error.message === SHOPPER_EVIDENCE_MISSING
+            ) {
+              return null;
+            }
+            throw error;
+          }
+        },
+      )
+    ).filter((draft): draft is QueryDraft => draft != null);
     const completed = await completeCitedOffers({
       store,
       skuRows,
@@ -693,7 +731,7 @@ export async function runDominantDiagnostic(
       queryRows.push(await deps.repos.diagnosticQueries.create(draft));
     }
 
-    const { primary, selection: dominantSkuSelection } = selectDominantSku(skuRows, queryRows);
+    const { primary, selection: dominantSkuSelection } = selectPrimarySku(skuRows, queryRows);
     const probeRunId = job.probe_run_id;
     if (!probeRunId) {
       throw new AppError(500, "INTERNAL_ERROR", "Diagnostic job is missing probe_run_id");
@@ -763,8 +801,9 @@ export async function runDominantDiagnostic(
     };
 
     let assignedTrack: string | null = null;
+    const persistEnvelope = gold || storefrontClosed;
 
-    if (gold) {
+    if (persistEnvelope) {
       const triage = computeTriage({
         skus: skuRows.map((sku) => ({ id: sku.row.id, shopify: sku.row.shopify_data })),
         queries: queryRows,
