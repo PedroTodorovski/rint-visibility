@@ -766,3 +766,36 @@ describe("buildDiagnosticOutput track_pdp first_action", () => {
     expect(output.diagnostic.next_steps.page_brief).toMatchObject({ move: "expor_schema" });
   });
 });
+
+describe("buildDiagnosticOutput track_midia persists Meta volume for admin mosaic", () => {
+  it("writes spend and conversions into lacuna assumptions", () => {
+    const output = buildDiagnosticOutput({
+      jobId: "job-1",
+      primarySku: sku,
+      skus: [sku],
+      queries: [query("Melhor suplemento de greens no Brasil", [])],
+      track: "track_midia",
+      finance: {
+        ga4: { totalRevenue: 0, totalSessions: 0, bySource: [], meta },
+        shopify: { externalRef: "NUT000007", revenue: 0, orders: 0, ticketMedio: 0, meta },
+        meta: { externalRef: "NUT000007", spend: 900, conversions: 2, cac: 450, meta },
+        conversion: null,
+        googleAds: null,
+        merchantCenter: null,
+        trends: null,
+        seoGaps: [],
+      },
+    });
+
+    const assumptions = (
+      output.risks[0]?.inputs as {
+        assumptions?: { spend?: number; conversions?: number; cacSku?: number };
+      }
+    )?.assumptions;
+    expect(assumptions?.spend).toBe(900);
+    expect(assumptions?.conversions).toBe(2);
+    expect(assumptions?.cacSku).toBe(450);
+    expect(output.diagnostic.track).toBe("track_midia");
+    expect(String(output.diagnostic.next_steps.first_action)).toMatch(/Meta|verba|custo/i);
+  });
+});

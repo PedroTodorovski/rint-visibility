@@ -586,6 +586,9 @@ export function buildCitationFinancialRisks(
     citationTotal: citationCounts.citationTotal,
     ticketMedio: input.finance.shopify.ticketMedio,
     cacSku: input.finance.meta.cac,
+    // Admin Media mosaic reads spend/conversions from assumptions — keep with Meta CAC.
+    spend: input.finance.meta.spend,
+    conversions: input.finance.meta.conversions,
     origins: {
       receitaAiMedida: input.finance.ga4.meta,
       sessoesAi: input.finance.ga4.meta,
@@ -767,12 +770,15 @@ export function buildDiagnosticOutput(input: DiagnosticOutputInput): DiagnosticO
     );
   }
 
-  const wastedSpend = input.finance.googleAds?.wastedSpend ?? null;
-  const feedLostRevenue = input.finance.merchantCenter?.lostRevenue ?? null;
-  const economy =
-    typeof wastedSpend === "number" || typeof feedLostRevenue === "number"
-      ? (wastedSpend ?? 0) + (feedLostRevenue ?? 0)
-      : null;
+  const meta = input.finance.meta;
+  const cardPrice = input.primarySku.shopify_data.currentPrice;
+  const spend = meta.spend ?? 0;
+  const conversions = meta.conversions ?? 0;
+  const zeroConv = spend > 0 && conversions === 0;
+  const cacWaste = (meta.cac ?? 0) > 0 && cardPrice > 0 && (meta.cac ?? 0) > cardPrice;
+  const first_action = zeroConv
+    ? `Esta semana: pause os anúncios deste produto no Meta. O dinheiro saiu e a loja não registrou nenhuma compra. Antes de gastar de novo, peça a quem opera a conta para confirmar se a compra está sendo medida e se o anúncio abre a página certa deste produto.`
+    : `Esta semana: não aumente a verba deste produto no Meta. Cada compra nova está custando mais do que o preço na loja — você perde dinheiro quando o anúncio vende. Peça ao gestor de mídia para reduzir o lance ou pausar este produto até o custo por compra ficar abaixo do preço da vitrine.`;
 
   return withHeadline(
     {
@@ -781,17 +787,20 @@ export function buildDiagnosticOutput(input: DiagnosticOutputInput): DiagnosticO
         {
           job_id: input.jobId,
           sku_id: input.primarySku.id,
-          gap_value: feedLostRevenue,
+          gap_value: null,
           lost_clients: null,
-          compensation_cost: wastedSpend,
-          formula_type: "media_recoverable_waste",
+          compensation_cost: spend > 0 ? spend : null,
+          formula_type: "media_meta_waste",
           inputs: {
-            wasted_spend: wastedSpend,
-            feed_lost_revenue: feedLostRevenue,
-            monthly_recoverable: economy,
+            meta_cac: meta.cac,
+            card_price: cardPrice,
+            spend,
+            conversions,
+            zero_conv: zeroConv,
+            cac_above_card: cacWaste,
             no_direct_llm_causality_claim: true,
-            google_ads: input.finance.googleAds ?? unavailable("google_ads"),
-            merchant_center: input.finance.merchantCenter ?? unavailable("merchant_center"),
+            google_ads_v2: true,
+            merchant_center_v2: true,
           },
         },
       ],
@@ -801,37 +810,25 @@ export function buildDiagnosticOutput(input: DiagnosticOutputInput): DiagnosticO
         track: "track_midia",
         causes: [
           {
-            type: "budget_mal_alocado",
-            source: input.finance.googleAds ?? unavailable("google_ads"),
-          },
-          {
-            type: "feed_com_erro",
-            source: input.finance.merchantCenter ?? unavailable("merchant_center"),
-          },
-          {
-            type: "cac_alto_por_sku",
-            cac_sku: input.finance.meta.cac,
-            ticket_medio: input.finance.shopify.ticketMedio,
+            type: zeroConv ? "gasto_sem_compra" : "cac_alto_por_sku",
+            cac_sku: meta.cac,
+            card_price: cardPrice,
+            spend,
+            conversions,
           },
         ],
         actions: [
           {
-            type: "llms_sem_patrocinio",
-            targets: ["Gemini", "Claude", "Perplexity"],
-            action: "Otimizar desperdício de verba e corrigir feed.",
-          },
-          {
-            type: "llms_com_patrocinio",
-            targets: ["ChatGPT", "Copilot"],
-            action: "Mídia paga direta na LLM quando disponível + otimização de feed.",
+            type: "meta_nao_escalar",
+            action: first_action,
           },
         ],
         next_steps: {
           owner: "gestor de mídia ou agência parceira certificada",
-          recoverable_statement:
-            economy === null
-              ? "economia potencial indisponível até conectar Google Ads/Merchant Center"
-              : `R$ ${economy} recuperável em 1 a 2 semanas`,
+          first_action,
+          support_line: zeroConv
+            ? "Conteúdo e mudança de produto não resolvem anúncio que não registra venda. Ajuste a medição e a página de destino primeiro."
+            : "Escrever artigo ou mudar a fórmula não baixa o custo do anúncio. A ação desta semana é na conta de mídia.",
           no_direct_llm_causality_claim: true,
         },
         prazo: "1 a 2 semanas",

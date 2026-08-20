@@ -9,8 +9,12 @@ export type RevenueGapAssumptions = {
   citationCompetitor: number;
   ticketMedio: number;
   cacSku: number;
+  /** Meta Ads account spend in the diagnosis window — Media mosaic volume, not Conta 1. */
+  spend?: number;
+  /** Meta purchase conversions in the same window — Media mosaic + zero-conv gate. */
+  conversions?: number;
   window?: { start: string; end: string };
-  origins?: Record<string, { source: string; fetchedAt: string }>;
+  origins?: Record<string, { source: string; fetchedAt: string; port?: string }>;
 };
 
 export type RevenueGapFlags = {

@@ -342,7 +342,7 @@ describe("dominant triage", () => {
     variants: [],
     inventoryAvailable: 10,
     image: null,
-    meta: { source: "test", fetchedAt: new Date().toISOString() },
+    meta: { port: "test", source: "test", fetchedAt: new Date().toISOString() },
   };
 
   function query(structured: GeminiStructuredOutput, extra: Record<string, unknown> = {}) {
@@ -549,6 +549,216 @@ describe("dominant triage", () => {
     expect(outcome.coherenceLevel).toBe("coerente");
     expect(outcome.track).toBe("track_produto");
     expect(outcome.checks.competitor_cited).toBe(true);
+  });
+
+  it("keeps Product before Media when CAC is high and a competitor object exists", () => {
+    const outcome = computeTriage({
+      skus: [{ id: "sku-1", shopify }],
+      queries: [
+        query(
+          {
+            cliente_foi_citado: true,
+            concorrente_citado_nome: "Other",
+            concorrente_citado_url: "https://other.example/p",
+            atributos_mencionados_gemini: [],
+            preco_citado: 99,
+            nome_marca_citada: "Outra Marca",
+            produto_mencionado: "Outro Produto",
+            objetos_citados: [
+              {
+                marca: "Outra Marca",
+                loja: "Other",
+                produto: "Outro Produto",
+                url: "https://other.example/p",
+                preco: 99,
+                moeda: "BRL",
+                dimensoes: null,
+                qualidade: null,
+                prazo_entrega: null,
+                avaliacao: null,
+                imagem_url: null,
+                atributos: [],
+              },
+            ],
+          },
+          { cliente_foi_citado: true },
+        ),
+      ],
+      mediaSignals: {
+        meta: {
+          externalRef: "sku-1",
+          spend: 1000,
+          conversions: 2,
+          cac: 800,
+          meta: { port: "test", source: "test", fetchedAt: new Date().toISOString() },
+        },
+        shopifyRevenue: {
+          externalRef: "sku-1",
+          revenue: 5000,
+          orders: 10,
+          ticketMedio: 500,
+          meta: { port: "test", source: "test", fetchedAt: new Date().toISOString() },
+        },
+      },
+    });
+
+    expect(outcome.track).toBe("track_produto");
+    expect(outcome.checks.media_waste_detected).toBe(true);
+    expect(outcome.checks.competitor_cited).toBe(true);
+  });
+
+  it("routes N/N coherent Meta waste (CAC > card) to track_midia when no competitor object", () => {
+    const outcome = computeTriage({
+      skus: [
+        {
+          id: "sku-1",
+          shopify: {
+            ...shopify,
+            meta: {
+              ...shopify.meta,
+              source: "shopify_api",
+              storefrontAccess: "open",
+              hasJsonLd: true,
+            },
+          },
+        },
+      ],
+      queries: [
+        query(
+          {
+            cliente_foi_citado: true,
+            concorrente_citado_nome: null,
+            concorrente_citado_url: null,
+            atributos_mencionados_gemini: [],
+            preco_citado: 500,
+            nome_marca_citada: "Acme",
+            produto_mencionado: "Hero Sofa",
+            objetos_citados: [],
+          },
+          { cliente_foi_citado: true },
+        ),
+      ],
+      mediaSignals: {
+        meta: {
+          externalRef: "sku-1",
+          spend: 1000,
+          conversions: 2,
+          cac: 800,
+          meta: { port: "test", source: "test", fetchedAt: new Date().toISOString() },
+        },
+        shopifyRevenue: {
+          externalRef: "sku-1",
+          revenue: 5000,
+          orders: 10,
+          ticketMedio: 500,
+          meta: { port: "test", source: "test", fetchedAt: new Date().toISOString() },
+        },
+      },
+    });
+
+    expect(outcome.track).toBe("track_midia");
+    expect(outcome.checks.media_waste_detected).toBe(true);
+  });
+
+  it("routes spend with zero purchases to track_midia", () => {
+    const outcome = computeTriage({
+      skus: [
+        {
+          id: "sku-1",
+          shopify: {
+            ...shopify,
+            meta: {
+              ...shopify.meta,
+              source: "shopify_api",
+              storefrontAccess: "open",
+              hasJsonLd: true,
+            },
+          },
+        },
+      ],
+      queries: [
+        query(
+          {
+            cliente_foi_citado: true,
+            concorrente_citado_nome: null,
+            concorrente_citado_url: null,
+            atributos_mencionados_gemini: [],
+            preco_citado: 500,
+            nome_marca_citada: "Acme",
+            produto_mencionado: "Hero Sofa",
+            objetos_citados: [],
+          },
+          { cliente_foi_citado: true },
+        ),
+      ],
+      mediaSignals: {
+        meta: {
+          externalRef: "sku-1",
+          spend: 500,
+          conversions: 0,
+          cac: 0,
+          meta: { port: "test", source: "test", fetchedAt: new Date().toISOString() },
+        },
+        shopifyRevenue: {
+          externalRef: "sku-1",
+          revenue: 5000,
+          orders: 10,
+          ticketMedio: 500,
+          meta: { port: "test", source: "test", fetchedAt: new Date().toISOString() },
+        },
+      },
+    });
+
+    expect(outcome.track).toBe("track_midia");
+    expect(outcome.checks.media_waste_detected).toBe(true);
+  });
+
+  it("does not let Google Ads wastedSpend pick the week", () => {
+    const outcome = computeTriage({
+      skus: [
+        {
+          id: "sku-1",
+          shopify: {
+            ...shopify,
+            meta: {
+              ...shopify.meta,
+              source: "shopify_api",
+              storefrontAccess: "open",
+              hasJsonLd: true,
+            },
+          },
+        },
+      ],
+      queries: [
+        query(
+          {
+            cliente_foi_citado: true,
+            concorrente_citado_nome: null,
+            concorrente_citado_url: null,
+            atributos_mencionados_gemini: [],
+            preco_citado: 500,
+            nome_marca_citada: "Acme",
+            produto_mencionado: "Hero Sofa",
+            objetos_citados: [],
+          },
+          { cliente_foi_citado: true },
+        ),
+      ],
+      mediaSignals: {
+        googleAds: {
+          externalRef: "sku-1",
+          spend: 2000,
+          roas: 0.1,
+          breakEvenRoas: 2,
+          wastedSpend: 999,
+          clickVolumeWithoutConversion: 40,
+          meta: { port: "test", source: "test", fetchedAt: new Date().toISOString() },
+        },
+      },
+    });
+
+    expect(outcome.checks.media_waste_detected).toBe(false);
+    expect(outcome.track).not.toBe("track_midia");
   });
 
   it("does not treat a competitor name without objetos_citados as track_produto", () => {
