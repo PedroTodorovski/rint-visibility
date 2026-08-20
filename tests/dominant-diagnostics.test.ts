@@ -615,4 +615,202 @@ describe("dominant triage", () => {
     expect(outcome.track).toBe("track_pdp");
     expect(outcome.checks.competitor_cited).toBe(false);
   });
+
+  it("routes panel mismatch to track_pdp", () => {
+    const outcome = computeTriage({
+      skus: [
+        {
+          id: "sku-1",
+          shopify: {
+            ...shopify,
+            meta: {
+              ...shopify.meta,
+              source: "public_pdp",
+              storefrontAccess: "open",
+              hasJsonLd: true,
+              panelMismatch: true,
+              shopConnected: true,
+            },
+          },
+        },
+      ],
+      queries: [
+        query(
+          {
+            cliente_foi_citado: true,
+            concorrente_citado_nome: null,
+            concorrente_citado_url: null,
+            atributos_mencionados_gemini: [],
+            preco_citado: 500,
+            nome_marca_citada: "Acme",
+            produto_mencionado: "Hero Sofa",
+            objetos_citados: [],
+          },
+          { cliente_foi_citado: true },
+        ),
+      ],
+    });
+    expect(outcome.track).toBe("track_pdp");
+  });
+
+  it("routes thin Admin catalog to track_llm, not track_pdp", () => {
+    const outcome = computeTriage({
+      skus: [
+        {
+          id: "sku-1",
+          shopify: {
+            ...shopify,
+            descriptionChars: 20,
+            attributes: ["x"],
+            meta: {
+              ...shopify.meta,
+              source: "shopify_api",
+              storefrontAccess: "open",
+              hasJsonLd: true,
+              admin: {
+                attributeCount: 1,
+                descriptionChars: 20,
+                hasMaterial: false,
+                hasColor: false,
+                hasDimension: false,
+                hasImageAlt: true,
+                thin: true,
+                gaps: ["attributes", "description"],
+              },
+            },
+          },
+        },
+      ],
+      queries: [
+        query(
+          {
+            cliente_foi_citado: true,
+            concorrente_citado_nome: null,
+            concorrente_citado_url: null,
+            atributos_mencionados_gemini: [],
+            preco_citado: 500,
+            nome_marca_citada: "Acme",
+            produto_mencionado: "Hero Sofa",
+            objetos_citados: [],
+          },
+          { cliente_foi_citado: true },
+        ),
+      ],
+    });
+    expect(outcome.track).toBe("track_llm");
+  });
+
+  it("routes missing street JSON-LD to track_pdp even when Admin catalog is thin", () => {
+    const outcome = computeTriage({
+      skus: [
+        {
+          id: "sku-1",
+          shopify: {
+            ...shopify,
+            descriptionChars: 20,
+            attributes: ["x"],
+            meta: {
+              ...shopify.meta,
+              source: "shopify_api",
+              storefrontAccess: "open",
+              hasJsonLd: false,
+              admin: {
+                attributeCount: 1,
+                descriptionChars: 20,
+                hasMaterial: false,
+                hasColor: false,
+                hasDimension: false,
+                hasImageAlt: true,
+                thin: true,
+                gaps: ["attributes", "description"],
+              },
+            },
+          },
+        },
+      ],
+      queries: [
+        query(
+          {
+            cliente_foi_citado: true,
+            concorrente_citado_nome: null,
+            concorrente_citado_url: null,
+            atributos_mencionados_gemini: [],
+            preco_citado: 500,
+            nome_marca_citada: "Acme",
+            produto_mencionado: "Hero Sofa",
+            objetos_citados: [],
+          },
+          { cliente_foi_citado: true },
+        ),
+      ],
+    });
+    expect(outcome.track).toBe("track_pdp");
+  });
+
+  it("keeps 0/N on track_llm even when the street has no JSON-LD", () => {
+    const outcome = computeTriage({
+      skus: [
+        {
+          id: "sku-1",
+          shopify: {
+            ...shopify,
+            meta: {
+              ...shopify.meta,
+              source: "shopify_api",
+              storefrontAccess: "open",
+              hasJsonLd: false,
+            },
+          },
+        },
+      ],
+      queries: [
+        query({
+          cliente_foi_citado: false,
+          concorrente_citado_nome: "Other",
+          concorrente_citado_url: "https://other.example/p",
+          atributos_mencionados_gemini: [],
+          preco_citado: 99,
+          nome_marca_citada: "Outra Marca",
+          produto_mencionado: "Outro Produto",
+          objetos_citados: [],
+        }),
+      ],
+    });
+    expect(outcome.track).toBe("track_llm");
+  });
+
+  it("routes an open street without JSON-LD to track_pdp", () => {
+    const outcome = computeTriage({
+      skus: [
+        {
+          id: "sku-1",
+          shopify: {
+            ...shopify,
+            meta: {
+              ...shopify.meta,
+              source: "shopify_api",
+              storefrontAccess: "open",
+              hasJsonLd: false,
+            },
+          },
+        },
+      ],
+      queries: [
+        query(
+          {
+            cliente_foi_citado: true,
+            concorrente_citado_nome: null,
+            concorrente_citado_url: null,
+            atributos_mencionados_gemini: [],
+            preco_citado: 500,
+            nome_marca_citada: "Acme",
+            produto_mencionado: "Hero Sofa",
+            objetos_citados: [],
+          },
+          { cliente_foi_citado: true },
+        ),
+      ],
+    });
+    expect(outcome.track).toBe("track_pdp");
+  });
 });

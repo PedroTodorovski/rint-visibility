@@ -58,6 +58,14 @@ export type ShopifyProductSnapshot = {
     /** Derived from URL / JSON-LD / HTML at diagnosis time. Null = unknown. */
     storefrontPlatform?: "shopify" | "vtex" | "nuvemshop" | null;
     imageSource?: "shopify_api" | "json_ld" | "og" | null;
+    /**
+     * Shopify was connected on this run, but this SKU was not in that Admin.
+     * Street snapshot + probe still run. Not a marketplace URL.
+     */
+    panelMismatch?: boolean;
+    /** Shop was connected even when the snapshot is from the street. */
+    shopConnected?: boolean;
+    shopDomain?: string | null;
     /** Admin catalog readiness — gold when Shopify is connected. */
     admin?: {
       attributeCount: number;
