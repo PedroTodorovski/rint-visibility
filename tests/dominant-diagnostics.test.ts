@@ -738,6 +738,98 @@ describe("dominant triage", () => {
     expect(outcome.track).toBe("track_llm");
   });
 
+  it("does not fabricate incoherence from a name-only fuzzy match when grounding says this query did not cite the client", () => {
+    // `objetos_citados` has an off-domain object whose `marca` fuzzy-matches the client
+    // brand ("Acme") by coincidence, but `cliente_foi_citado: false` means grounding never
+    // resolved this query to the client's own host. Before the fix, the fuzzy match alone
+    // pulled this object into the coherence check and its mismatched price flipped
+    // coherenceLevel to "incoerente" — a false "the client lied about their own price"
+    // signal for an object that was never actually the client. The citation gap (0/N)
+    // still correctly routes to track_llm either way — coherenceLevel is what changes.
+    const outcome = computeTriage({
+      skus: [{ id: "sku-1", shopify }],
+      queries: [
+        query({
+          cliente_foi_citado: false,
+          concorrente_citado_nome: "Acme",
+          concorrente_citado_url: "https://marketplace.example/listing/123",
+          atributos_mencionados_gemini: [],
+          preco_citado: 50,
+          nome_marca_citada: "Acme",
+          produto_mencionado: "Hero Sofa",
+          objetos_citados: [
+            {
+              marca: "Acme",
+              loja: "Marketplace",
+              produto: "Hero Sofa",
+              url: "https://marketplace.example/listing/123",
+              preco: 50,
+              moeda: "BRL",
+              dimensoes: null,
+              qualidade: null,
+              prazo_entrega: null,
+              avaliacao: null,
+              imagem_url: null,
+              atributos: [],
+            },
+          ],
+        }),
+      ],
+    });
+
+    expect(outcome.coherenceLevel).toBe("coerente");
+    expect(outcome.checks.comparisons).toMatchObject([
+      { price_matches: null, brand_matches: null },
+    ]);
+    expect(outcome.track).toBe("track_llm");
+  });
+
+  it("trusts a minority execution's grounding over the query-level majority vote (ADR-003 multi-execution gap)", () => {
+    // Pro-tier query (3 executions): 1 execution genuinely grounded the client, 2 did not —
+    // the aggregate `cliente_foi_citado` is `false` (majority vote), but the merged
+    // `objetos_citados` entry for the client's own product is stamped
+    // `grounding_confirmed_client: true` (OR'd from the one confirming execution). The object
+    // has no host-matching `url` (Gemini's own `url` field is unreliable — exactly the
+    // real-world case this fix targets), so only the fuzzy marca/produto match plus the
+    // per-object grounding flag can pull it into the coherence check. The coherence check
+    // must use that per-object truth, not the query-level `false`, so a real price mismatch
+    // on the client's own listing still flips coherence to `incoerente`.
+    const outcome = computeTriage({
+      skus: [{ id: "sku-1", shopify }],
+      queries: [
+        query({
+          cliente_foi_citado: false,
+          concorrente_citado_nome: null,
+          concorrente_citado_url: null,
+          atributos_mencionados_gemini: [],
+          preco_citado: 199,
+          nome_marca_citada: shopify.brand,
+          produto_mencionado: shopify.name,
+          objetos_citados: [
+            {
+              marca: shopify.brand,
+              loja: shopify.name,
+              produto: shopify.name,
+              url: null,
+              preco: 199,
+              moeda: "BRL",
+              dimensoes: null,
+              qualidade: null,
+              prazo_entrega: null,
+              avaliacao: null,
+              imagem_url: null,
+              atributos: [],
+              grounding_confirmed_client: true,
+            },
+          ],
+        }),
+      ],
+    });
+
+    expect(outcome.checks.comparisons).toMatchObject([{ price_matches: false }]);
+    expect(outcome.coherenceLevel).toBe("incoerente");
+  });
+
   it("routes N/N coherent with a competitor object to track_produto", () => {
     const outcome = computeTriage({
       skus: [{ id: "sku-1", shopify }],

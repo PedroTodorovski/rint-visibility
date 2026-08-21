@@ -27,6 +27,7 @@ progress:
 
 ## Decisions Log
 
+- 2026-08-21: **Grounding decide identidade de objeto citado, não match difuso de nome — agora por objeto, não só por query** — `isCitedClientObject` (`gemini-structured.ts`) e o gêmeo `isClientCitedObject` (`rint-app/src/lib/cited-offer.ts`) só caem no fallback fuzzy de marca/produto quando não há veredito de grounding ou quando esse veredito já confirmou o cliente — nunca quando grounding já disse "não citou". Callers atualizados: `computeTriage` (2 call sites, motor), `hasCitedProductSignal` e `mentionedAttrsFromClientObjects`/`priceMismatchesFromClientObjects`/`crownFromEngineQueries`/`crownCompetitorSku` (rint-app). Segunda rodada, mesmo dia: `GeminiCitedObject`/`CitedObjectLike` ganharam `grounding_confirmed_client?: boolean`, calculado em `mergeCitedObjects` como OR entre o `cliente_foi_citado` de cada execução que contribuiu o objeto — fecha o gap de queries multi-execução (plano "pro", `executionsPerQuery > 1`) onde o voto de maioria da query podia divergir do grounding real de uma execução minoritária. Todo caller agora resolve `object.grounding_confirmed_client ?? query.cliente_foi_citado`. ADR-003 documenta os dois gaps residuais restantes (menores, granularidade por chunk de grounding). Contrato: `rint-app/docs/DIAGNOSIS-DOMINANT.md` § 3.1.
 - 2026-08-20: **Porta fechada não espera Gemini** — `password` / `blocked` pulam o probe; job conclui `track_pdp` (`abrir_senha` / `tirar_bloqueio`). Prova vazia só aborta loja aberta/não verificada. Envelope de Página também sem Shopify ligado. Contrato: `rint-app/docs/DIAGNOSIS-DOMINANT.md` § 3.2.
 - 2026-08-20: **Juízo da semana (Produto)** — `judgeProductWeek` é regra pura; `product_brief` / `first_action` saem do molde. Sem segundo Gemini. Ouro Nuture = NSF, não preço. Contrato: `rint-app/docs/DIAGNOSIS-DOMINANT.md`.
 - 2026-08-20: **0/N e parcial → Conteúdo no job** — `computeTriage` alinha com a tela. `incoherent` e `sourcesWithoutStore` entram no `content_brief`. Cadastro primeiro continua. Contrato: `rint-app/docs/DIAGNOSIS-DOMINANT.md`, `DIAGNOSIS-PREVIEW-SCENARIOS.md`.
@@ -49,3 +50,8 @@ progress:
 ## Blockers
 
 - Migration `20260627120000_prompts_product_id.sql` authored — **Pedro deploy only**
+
+## Follow-ups (não bloqueantes, retomar quando fizer sentido)
+
+- **Grounding por chunk, não só por execução** — gap residual aceito, detalhado em ADR-003 (seção Consequences): um objeto co-mencionado numa query já `cliente_foi_citado: true` que faz fuzzy-match com o nome do cliente ainda pode ser mal-atribuído. Fechar exigiria correlacionar cada objeto ao host de grounding resolvido específico, não só ao veredito da execução.
+- **Cobertura de teste mais fina em caminhos legados/degradados** — dormant workspace `{lacuna, dual_track}` (sem `job`), storefront fechado, `persistEnvelope=false`. Verificado por leitura direta nesta sessão (double-check de 2026-08-21), não por teste dedicado a cada cenário.
