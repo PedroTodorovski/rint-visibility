@@ -223,6 +223,30 @@ describe("cited object identity", () => {
     expect(mergeCitedObjects([[object]])).toEqual([object]);
   });
 
+  it("a per-object grounding verdict (already stamped by the runner) wins over the per-execution fallback", () => {
+    // ADR-003 residual gap: within a query the per-execution boolean says `true` (the query
+    // *was* grounding-confirmed to the client overall), but this specific object's own sentence
+    // was grounded to a different host — a competitor co-mentioned in the same answer. The
+    // finer, already-computed per-object value must not be clobbered by the coarser fallback.
+    const competitorAlreadyStamped = {
+      ...emptyCitedObject(),
+      marca: "AG1",
+      grounding_confirmed_client: false,
+    };
+    expect(mergeCitedObjects([[competitorAlreadyStamped]], [true])).toMatchObject([
+      { grounding_confirmed_client: false },
+    ]);
+
+    const clientAlreadyStamped = {
+      ...emptyCitedObject(),
+      marca: "Nuture",
+      grounding_confirmed_client: true,
+    };
+    expect(mergeCitedObjects([[clientAlreadyStamped]], [false])).toMatchObject([
+      { grounding_confirmed_client: true },
+    ]);
+  });
+
   it("rebuilds the array from singular fields when old snapshots omitted it", () => {
     const objects = citedObjectsFromStructured({
       ...emptyGeminiStructured(),

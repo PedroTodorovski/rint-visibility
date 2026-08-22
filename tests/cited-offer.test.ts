@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   crownCompetitorSku,
   groundingHostsFromUrls,
+  isClientCitedObject,
   mergeFollowUpCitedObjects,
   planCitedOfferFollowUp,
   productIdentityKey,
@@ -127,5 +128,83 @@ describe("cited offer crown", () => {
     expect(merged).toHaveLength(2);
     expect(merged[0]?.preco).toBe(99);
     expect(merged[0]?.loja).toBe("Athletic Greens");
+  });
+
+  it("ADR-003 bug fixed: follow-up merge no longer discards a freshly-computed grounding verdict", () => {
+    // Regression coverage for the exact bug found in review: turn 1 leaves the object's
+    // grounding verdict unset (`undefined`, no signal yet — that ambiguity is why a follow-up
+    // was asked in the first place); the follow-up turn resolves it to a confident `false`
+    // (grounded elsewhere, not the client). Before the fix, `fillNulls` didn't list
+    // `grounding_confirmed_client` at all, so the follow-up's `false` was silently dropped and
+    // the object stayed `undefined` forever — reopening the exact same-query co-mention gap
+    // ADR-003 closed, specifically for objects that needed a follow-up to resolve.
+    const merged = mergeFollowUpCitedObjects(
+      [
+        {
+          marca: "Athletic Greens",
+          produto: "AG1",
+          preco: null,
+          grounding_confirmed_client: undefined,
+        },
+      ],
+      [{ marca: "Athletic Greens", produto: "AG1", preco: 99, grounding_confirmed_client: false }],
+    );
+    expect(merged[0]?.grounding_confirmed_client).toBe(false);
+  });
+
+  it("follow-up merge keeps the first turn's grounding verdict — fills nulls only, never overwrites", () => {
+    const merged = mergeFollowUpCitedObjects(
+      [{ marca: "Athletic Greens", produto: "AG1", grounding_confirmed_client: true }],
+      [{ marca: "Athletic Greens", produto: "AG1", grounding_confirmed_client: false }],
+    );
+    expect(merged[0]?.grounding_confirmed_client).toBe(true);
+  });
+});
+
+describe("isClientCitedObject — grounding precedence (ADR-003)", () => {
+  const offDomainFuzzyMatch = { marca: "Nuture", url: "https://marketplace.example/listing/1" };
+
+  it("suppresses the fuzzy fallback when the object's own grounding verdict is false", () => {
+    expect(isClientCitedObject(offDomainFuzzyMatch, client, false)).toBe(false);
+  });
+
+  it("still applies the fuzzy fallback when grounding confirmed the client (disambiguating which object)", () => {
+    expect(isClientCitedObject(offDomainFuzzyMatch, client, true)).toBe(true);
+  });
+
+  it("still applies the fuzzy fallback with no grounding verdict at all — unmigrated-caller back-compat", () => {
+    expect(isClientCitedObject(offDomainFuzzyMatch, client)).toBe(true);
+  });
+
+  it("a literal host match always wins, even when the grounding verdict is false", () => {
+    const clientHostObject = { url: "https://nuture.com.br/products/nuture-daily-boost" };
+    expect(isClientCitedObject(clientHostObject, client, false)).toBe(true);
+  });
+});
+
+describe("crownCompetitorSku — grounding precedence (ADR-003)", () => {
+  it("this repo's own crownCompetitorSku (used by track_produto/completeCitedOffers) now honors per-object and per-query grounding — was previously wired to nothing", () => {
+    // Regression coverage for the exact bug found in review: this file has its own
+    // `isClientCitedObject`/`crownCompetitorSku`, separate from the twins in
+    // `gemini-structured.ts` and `rint-app/src/lib/cited-offer.ts` — it never received the
+    // ADR-003 grounding parameter at all, so a competitor whose name fuzzy-matched the client
+    // brand was always excluded from crowning (silently treated as "the client"), regardless of
+    // any grounding signal, via every one of this repo's four call sites
+    // (dominant-diagnostic-runner.ts x2, diagnostic-output.ts x2).
+    const lookalike = { marca: "Nuture Studio", produto: "Suplemento", preco: 50 };
+    const crownStillCompetitor = crownCompetitorSku({
+      client,
+      objectsByQuery: [[lookalike], [lookalike]],
+      citedByQuery: [false, false],
+    });
+    expect(crownStillCompetitor.confidence).toBe("clear");
+    expect(crownStillCompetitor.produto).toBe("Suplemento");
+
+    const clientObject = { ...lookalike, grounding_confirmed_client: true };
+    const crownExcludedAsClient = crownCompetitorSku({
+      client,
+      objectsByQuery: [[clientObject], [clientObject]],
+    });
+    expect(crownExcludedAsClient.confidence).toBe("empty");
   });
 });

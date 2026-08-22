@@ -386,6 +386,7 @@ function trackProdutoNextSteps(snapshot: ShopifyProductSnapshot, queries: Diagno
   const client = { name: snapshot.name, brand: snapshot.brand, url: snapshot.url };
   const crown = crownCompetitorSku({
     objectsByQuery: queries.map((query) => query.gemini_structured.objetos_citados ?? []),
+    citedByQuery: queries.map((query) => query.cliente_foi_citado),
     client,
   });
   const followup = planCitedOfferFollowUp(crown);
@@ -709,6 +710,7 @@ export function buildDiagnosticOutput(input: DiagnosticOutputInput): DiagnosticO
     };
     const crown = crownCompetitorSku({
       objectsByQuery: input.queries.map((query) => query.gemini_structured.objetos_citados ?? []),
+      citedByQuery: input.queries.map((query) => query.cliente_foi_citado),
       client,
     });
     const competitorPrice = crown.confidence === "clear" ? crown.preco : null;

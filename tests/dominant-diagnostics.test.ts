@@ -437,6 +437,102 @@ describe("dominant diagnostics API", () => {
     expect(providers).toContain("gemini");
     expect(providers).toContain("chatgpt");
   });
+
+  it("ADR-003 residual gap, end-to-end: stamps per-object grounding through the real Gemini-response pipeline, not hand-set test data", async () => {
+    // Every other coverage of this fix (gemini-grounding.test.ts, the computeTriage test below)
+    // constructs `objetos_citados` with `grounding_confirmed_client` already set by hand. This
+    // test is the one place that proves the real wiring — bindGroundingSupports →
+    // objectGroundingVerdicts → stampObjectsGrounding, run from an actual mocked Gemini response
+    // — produces the correct per-object stamp end to end. Client "Acme" and a co-mentioned
+    // lookalike competitor "Acme Studio" (a text-prefix collision, the shape that broke the
+    // naive first version of this fix) appear in the same answer; only Acme's own sentence
+    // resolves to the client's host.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(OPEN_PDP_HTML, { status: 200 })),
+    );
+    const app = await buildApp(testConfig(), {
+      repositories: createMemoryRepositories(),
+      llm: liveLlm({
+        gemini: stubLlmClient(async () => ({
+          rawText:
+            "A Acme vende o Hero Sofa por R$500 direto no site. A Acme Studio também vende um Sofá Modular parecido por R$50.",
+          structured: {
+            ...emptyGeminiStructured(),
+            cliente_foi_citado: true,
+            objetos_citados: [
+              {
+                marca: "Acme",
+                loja: null,
+                produto: "Hero Sofa",
+                url: null,
+                preco: 500,
+                moeda: "BRL",
+                dimensoes: null,
+                qualidade: null,
+                prazo_entrega: null,
+                avaliacao: null,
+                imagem_url: null,
+                atributos: [],
+              },
+              {
+                marca: "Acme Studio",
+                loja: null,
+                produto: "Sofá Modular",
+                url: null,
+                preco: 50,
+                moeda: "BRL",
+                dimensoes: null,
+                qualidade: null,
+                prazo_entrega: null,
+                avaliacao: null,
+                imagem_url: null,
+                atributos: [],
+              },
+            ],
+          },
+          model: "gemini-2.5-flash",
+          mocked: false,
+          usedWebSearch: true,
+          groundingUrls: ["https://acme.example/products/hero", "https://acmestudio.example/sofa"],
+          groundingSupports: [
+            {
+              text: "A Acme vende o Hero Sofa por R$500 direto no site.",
+              uris: ["https://acme.example/products/hero"],
+            },
+            {
+              text: "A Acme Studio também vende um Sofá Modular parecido por R$50.",
+              uris: ["https://acmestudio.example/sofa"],
+            },
+          ],
+          calls: [],
+        })),
+      }),
+    });
+    await seedStore(app);
+    const run = await app.inject({
+      method: "POST",
+      url: `/v1/diagnostics/run?workspace_id=${WORKSPACE_ID}`,
+      headers: authHeaders(TEST_API_KEY),
+      payload: { plan: "essential" },
+    });
+    await waitForStatus(app, run.json().job_id, "completed");
+    const diagnostic = await app.inject({
+      method: "GET",
+      url: `/v1/diagnostics/${run.json().job_id}?workspace_id=${WORKSPACE_ID}`,
+      headers: authHeaders(TEST_API_KEY),
+    });
+    const objects = diagnostic.json().queries[0].gemini_structured.objetos_citados as Array<{
+      marca: string;
+      grounding_confirmed_client?: boolean;
+    }>;
+    expect(objects.find((object) => object.marca === "Acme")?.grounding_confirmed_client).toBe(
+      true,
+    );
+    expect(
+      objects.find((object) => object.marca === "Acme Studio")?.grounding_confirmed_client,
+    ).toBe(false);
+  });
 });
 
 describe("dominant SKU selection", () => {
@@ -828,6 +924,69 @@ describe("dominant triage", () => {
 
     expect(outcome.checks.comparisons).toMatchObject([{ price_matches: false }]);
     expect(outcome.coherenceLevel).toBe("incoerente");
+  });
+
+  it("closes the same-query co-mention gap (ADR-003 residual gap): a grounding-confirmed query can still list a competitor object", () => {
+    // `cliente_foi_citado: true` — grounding confirmed THIS query cited the client overall.
+    // But `objetos_citados` lists two objects: the client's own product, and a co-mentioned
+    // competitor ("Acme Studio") whose name fuzzy-matches the client brand ("Acme") by
+    // coincidence. `objectHostMatchFromSupports` (gemini-grounding.ts), stamped per object in
+    // `recordDiagnoseExecution` before this data ever reaches computeTriage, correctly marks
+    // the competitor `grounding_confirmed_client: false` — its own grounded sentence resolved
+    // to a different host — while the client's own object is `true`. Before this fix, only a
+    // single per-execution boolean existed and every object in a cited query shared it, so the
+    // competitor's wrong price would have wrongly flipped coherence to "incoerente".
+    const outcome = computeTriage({
+      skus: [{ id: "sku-1", shopify }],
+      queries: [
+        query({
+          cliente_foi_citado: true,
+          concorrente_citado_nome: "Acme Studio",
+          concorrente_citado_url: "https://acmestudio.example/sofa",
+          atributos_mencionados_gemini: [],
+          preco_citado: 500,
+          nome_marca_citada: "Acme",
+          produto_mencionado: "Hero Sofa",
+          objetos_citados: [
+            {
+              marca: "Acme",
+              loja: null,
+              produto: "Hero Sofa",
+              url: "https://acme.example/products/hero",
+              preco: 500,
+              moeda: "BRL",
+              dimensoes: null,
+              qualidade: null,
+              prazo_entrega: null,
+              avaliacao: null,
+              imagem_url: null,
+              atributos: [],
+              grounding_confirmed_client: true,
+            },
+            {
+              marca: "Acme Studio",
+              loja: null,
+              produto: "Sofá Modular",
+              url: "https://acmestudio.example/sofa",
+              preco: 50,
+              moeda: "BRL",
+              dimensoes: null,
+              qualidade: null,
+              prazo_entrega: null,
+              avaliacao: null,
+              imagem_url: null,
+              atributos: [],
+              grounding_confirmed_client: false,
+            },
+          ],
+        }),
+      ],
+    });
+
+    // The competitor's mismatched price (50 vs the client's real 500) never enters the
+    // comparison — only the client's own, correctly-priced object does.
+    expect(outcome.checks.comparisons).toMatchObject([{ price_matches: true }]);
+    expect(outcome.coherenceLevel).toBe("coerente");
   });
 
   it("routes N/N coherent with a competitor object to track_produto", () => {
