@@ -12,6 +12,7 @@ Rint MVP 2026 **engine API** — Gemini probes, revenue gap engine (slices futur
 
 | Doc | Purpose |
 |-----|---------|
+| [MAPA-DO-DIAGNOSTICO.md](docs/MAPA-DO-DIAGNOSTICO.md) | Mapa didático do motor — do input ao output, sem jargão |
 | [GEMINI-PROBE-METHODOLOGY.md](docs/GEMINI-PROBE-METHODOLOGY.md) | Probe canônico |
 | [../rint-app/.planning/MVP-DEFINITION.md](../rint-app/.planning/MVP-DEFINITION.md) | Produto |
 | [docs/database/GOVERNANCE.md](docs/database/GOVERNANCE.md) | Persistência |
