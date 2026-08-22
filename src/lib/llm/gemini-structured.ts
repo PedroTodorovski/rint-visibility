@@ -13,6 +13,15 @@ export type GeminiCitedObject = {
   avaliacao: string | null;
   imagem_url: string | null;
   atributos: string[];
+  /**
+   * Engine-computed, not part of Gemini's own output: true when at least one execution that
+   * contributed this object (post-merge, see `mergeCitedObjects`) had its own grounding-derived
+   * `cliente_foi_citado` true; false when every contributing execution said false; absent when
+   * never computed (a single, unmerged parse, or persisted data from before this field existed).
+   * Lets `isCitedClientObject` resolve grounding per object instead of only per query — closes the
+   * multi-execution majority-vote gap described in ADR-003.
+   */
+  grounding_confirmed_client?: boolean;
 };
 
 export type GeminiStructuredOutput = {
@@ -171,6 +180,16 @@ function objectKey(object: GeminiCitedObject): string {
   return [fold(object.marca), fold(object.loja), fold(object.produto), fold(object.url)].join("|");
 }
 
+/** `true` beats `false` beats `undefined` — one confirming execution is enough to trust the object. */
+function orGroundingConfirmed(
+  left: boolean | undefined,
+  right: boolean | undefined,
+): boolean | undefined {
+  if (left === true || right === true) return true;
+  if (left === false && right === false) return false;
+  return left ?? right;
+}
+
 function mergeObject(left: GeminiCitedObject, right: GeminiCitedObject): GeminiCitedObject {
   return {
     marca: left.marca ?? right.marca,
@@ -185,16 +204,35 @@ function mergeObject(left: GeminiCitedObject, right: GeminiCitedObject): GeminiC
     avaliacao: left.avaliacao ?? right.avaliacao,
     imagem_url: left.imagem_url ?? right.imagem_url,
     atributos: [...new Set([...left.atributos, ...right.atributos])],
+    grounding_confirmed_client: orGroundingConfirmed(
+      left.grounding_confirmed_client,
+      right.grounding_confirmed_client,
+    ),
   };
 }
 
-export function mergeCitedObjects(lists: GeminiCitedObject[][]): GeminiCitedObject[] {
+/**
+ * `groundingConfirmedByList[i]` — pass execution `i`'s own `cliente_foi_citado` when known
+ * (`dominant-diagnostic-runner.ts` passes one per execution). Stamps each surviving merged object
+ * with `grounding_confirmed_client`, OR'd across every execution that contributed it — a minority
+ * execution that genuinely grounded the client is enough, even if the query-level majority vote
+ * disagrees. Omit the second argument to preserve the exact prior behavior (no field set).
+ */
+export function mergeCitedObjects(
+  lists: GeminiCitedObject[][],
+  groundingConfirmedByList?: Array<boolean | undefined>,
+): GeminiCitedObject[] {
   const map = new Map<string, GeminiCitedObject>();
-  for (const object of lists.flat()) {
-    const key = objectKey(object);
-    const previous = map.get(key);
-    map.set(key, previous ? mergeObject(previous, object) : object);
-  }
+  lists.forEach((list, index) => {
+    const grounded = groundingConfirmedByList?.[index];
+    for (const object of list) {
+      const stamped =
+        grounded === undefined ? object : { ...object, grounding_confirmed_client: grounded };
+      const key = objectKey(stamped);
+      const previous = map.get(key);
+      map.set(key, previous ? mergeObject(previous, stamped) : stamped);
+    }
+  });
   return [...map.values()];
 }
 
@@ -248,10 +286,24 @@ export function parseGeminiStructuredOutput(raw: string): GeminiStructuredOutput
   });
 }
 
-export function isCitedClientObject(object: GeminiCitedObject, identity: ClientIdentity): boolean {
+/**
+ * `groundingConfirmedClient` — pass the query's grounded citation result (`citation-gold.ts`'s
+ * strict, grounding-host-based `cited`/`cliente_foi_citado`) when known. Grounding is the source
+ * of truth: once it has decided this query did NOT cite the client, a loose name/brand substring
+ * match must not override that and misclassify a competitor object as the client (or the reverse).
+ * The fuzzy fallback stays in play only to disambiguate WHICH object represents the client among
+ * several `objetos_citados` in a query grounding already confirmed as cited (`true`), or when the
+ * caller has no grounding verdict to offer (`undefined` — back-compat for unmigrated callers).
+ */
+export function isCitedClientObject(
+  object: GeminiCitedObject,
+  identity: ClientIdentity,
+  groundingConfirmedClient?: boolean,
+): boolean {
   const citedHost = hostOf(object.url);
   const clientHost = hostOf(identity.url);
   if (citedHost && clientHost && citedHost === clientHost) return true;
+  if (groundingConfirmedClient === false) return false;
 
   const cited = fold(object.marca) || fold(object.produto);
   if (!cited) return false;

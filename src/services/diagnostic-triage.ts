@@ -135,7 +135,11 @@ export function computeTriage(input: TriageInput): TriageOutcome {
     if (!shopify) continue;
     const client = { name: shopify.name, brand: shopify.brand, url: shopify.url };
     const clientObjects = citedObjectsFromStructured(query.gemini_structured).filter((object) =>
-      isCitedClientObject(object, client),
+      isCitedClientObject(
+        object,
+        client,
+        object.grounding_confirmed_client ?? query.cliente_foi_citado,
+      ),
     );
     let price: boolean | null = null;
     let attrs: boolean | null = null;
@@ -173,7 +177,15 @@ export function computeTriage(input: TriageInput): TriageOutcome {
         object.produto?.trim() || object.marca?.trim() || object.loja?.trim() || object.url?.trim(),
       );
       if (!named) return false;
-      if (client && isCitedClientObject(object, client)) return false;
+      if (
+        client &&
+        isCitedClientObject(
+          object,
+          client,
+          object.grounding_confirmed_client ?? query.cliente_foi_citado,
+        )
+      )
+        return false;
       return true;
     });
   });

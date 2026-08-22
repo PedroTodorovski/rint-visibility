@@ -145,6 +145,40 @@ describe("cited object identity", () => {
     ).toBe(true);
   });
 
+  describe("groundingConfirmedClient — strict grounding wins over the fuzzy name fallback", () => {
+    // Object hosted off the client's domain, but its `marca` field fuzzy-matches the client
+    // brand ("acme"). Grounding is the source of truth for whether this query cited the
+    // client at all; a name-substring match alone must not override a grounded "not cited".
+    const fuzzyMatchOffDomain = {
+      ...emptyCitedObject(),
+      marca: "Acme",
+      url: "https://marketplace.example/listing/123",
+    };
+
+    it("suppresses the fuzzy fallback when grounding already said this query did not cite the client", () => {
+      expect(isCitedClientObject(fuzzyMatchOffDomain, client, false)).toBe(false);
+    });
+
+    it("still applies the fuzzy fallback when grounding confirmed the client was cited (disambiguating which object it is)", () => {
+      expect(isCitedClientObject(fuzzyMatchOffDomain, client, true)).toBe(true);
+    });
+
+    it("still applies the fuzzy fallback when no grounding verdict is provided (unmigrated callers keep prior behavior)", () => {
+      expect(isCitedClientObject(fuzzyMatchOffDomain, client)).toBe(true);
+    });
+
+    it("a literal host match always wins, even when groundingConfirmedClient is false", () => {
+      // The host check must stay unconditional: a query-level "not cited" vote (e.g. a
+      // majority-vote aggregate across multiple executions, see ADR-003) must never override
+      // an object that is directly hosted on the client's own domain.
+      const clientHostObject = {
+        ...emptyCitedObject(),
+        url: "https://www.acme.example/products/hero",
+      };
+      expect(isCitedClientObject(clientHostObject, client, false)).toBe(true);
+    });
+  });
+
   it("merges the same object across executions without dropping stated facts", () => {
     const merged = mergeCitedObjects([
       [{ ...emptyCitedObject(), marca: "Burton", loja: "Decathlon" }],
@@ -169,6 +203,24 @@ describe("cited object identity", () => {
         imagem_url: "https://cdn.example/burton.jpg",
       },
     ]);
+  });
+
+  it("stamps grounding_confirmed_client as an OR across the executions that contributed each object (ADR-003)", () => {
+    const object = { ...emptyCitedObject(), marca: "Burton", loja: "Decathlon" };
+
+    // A minority execution's `true` beats two majority `false`s — one confirming execution
+    // is enough, independent of the query-level majority vote computed elsewhere.
+    expect(mergeCitedObjects([[object], [object], [object]], [false, false, true])).toMatchObject([
+      { grounding_confirmed_client: true },
+    ]);
+
+    // Every contributing execution said `false` — stays `false`, not just "no fallback".
+    expect(mergeCitedObjects([[object], [object]], [false, false])).toMatchObject([
+      { grounding_confirmed_client: false },
+    ]);
+
+    // No second argument at all — no field is stamped, byte-identical to pre-fix behavior.
+    expect(mergeCitedObjects([[object]])).toEqual([object]);
   });
 
   it("rebuilds the array from singular fields when old snapshots omitted it", () => {

@@ -428,6 +428,7 @@ async function executeQuery(input: {
       produto_mencionado: product,
       objetos_citados: mergeCitedObjects(
         executions.map((execution) => citedObjectsFromStructured(execution.structured)),
+        executions.map((execution) => execution.structured.cliente_foi_citado),
       ),
     }),
     cliente_foi_citado: clientCited,

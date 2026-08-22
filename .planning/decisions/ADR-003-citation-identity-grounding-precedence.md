@@ -1,0 +1,56 @@
+# ADR-003 — Grounding precedence for "is this cited object the client?"
+
+**Status:** Accepted
+**Date:** 2026-08-21
+
+## Context
+
+Two independently-maintained implementations answer the same question — "does this Gemini-cited object represent the client, or a competitor?" — with different strictness:
+
+- `citation-gold.ts`'s `scoreClientCitation` (the query-level `cited`/`cliente_foi_citado` verdict, persisted and used everywhere downstream — `revenue-gap-engine.ts`'s citation counts, the screen's citation tally): **strict**. `cited: true` only when a resolved Search-grounding chunk's host matches the client's own host (`clientInGrounding`). A brand/product name mentioned only in text, with no matching grounding host, is `why: "text_only_not_grounded"` — never `cited`.
+- `gemini-structured.ts`'s `isCitedClientObject` (used inside `computeTriage`'s §3.1 coherence check, and inside the `competitorCited` detection at `diagnostic-triage.ts` — see note below): **loose**. Host match first, then a fuzzy fold+substring match on `marca`/`produto` against the client's name/brand.
+
+**Note on `competitorCitedObjects`:** `gemini-structured.ts` also exports a same-named-purpose helper, `competitorCitedObjects`, that internally calls `isCitedClientObject` too. It reads as if it were what gates `track_produto`'s `competitorCited` detection, but it is **not** — `diagnostic-triage.ts` has its own inline reimplementation of the same filter (lines ~165-179) that actually does the gating. `competitorCitedObjects` has no live production caller (confirmed by grep; only its own test exercises it). This ADR's fix updates the real gating code in `diagnostic-triage.ts`; `competitorCitedObjects` is left unmigrated deliberately (see "Callers left unmigrated" below) because nothing in production calls it.
+
+Same-named twin: `rint-app/src/lib/cited-offer.ts`'s `isClientCitedObject` — structurally identical loose logic, used to crown the competitor SKU shown in the report's product-comparison panel (`crownCompetitorSku`).
+
+No code comment, test, or commit message documented why the two definitions were allowed to diverge — it read as organic drift, not a deliberate design split.
+
+**Mechanism of the risk:**
+- `computeTriage`'s coherence check could pull an object into the client-comparison set by name alone, even when grounding had already determined the query did not cite the client — producing a false "the client lied about their own price/brand" (`incoerente`) verdict for an object that was never actually grounded to the client.
+- `competitorCitedObjects` (→ `track_produto`) could, symmetrically, misclassify a genuine competitor as "the client" by a coincidental name/brand substring match, suppressing `track_produto` detection it should have triggered — or the reverse, misclassifying the client's own object as a competitor.
+- The same risk exists independently in `rint-app`'s `crownCompetitorSku`, for which specific object gets crowned as the shown competitor in the UI.
+
+## Decision
+
+Grounding is the source of truth. Both twins now take an optional grounded-citation verdict for the query the object came from:
+
+- `isCitedClientObject(object, identity, groundingConfirmedClient?: boolean)` — `rint-visibility/src/lib/llm/gemini-structured.ts`
+- `isClientCitedObject(object, client, groundingConfirmedClient?: boolean)` — `rint-app/src/lib/cited-offer.ts`
+
+Rule: when `groundingConfirmedClient === false` (i.e. `query.cliente_foi_citado === false`), the fuzzy name/brand fallback is skipped and the function returns `false` right after the host check fails. When `true` or `undefined` (caller has no grounding verdict to offer), the fuzzy fallback still applies — it remains necessary to disambiguate WHICH object, among several `objetos_citados` in an already-grounded-cited query, is the client's versus a co-mentioned competitor.
+
+**Important precision on what `query.cliente_foi_citado` actually is:** it is not a single grounding fact — it's a majority vote across the query's `executionsPerQuery` independent Gemini executions (`dominant-diagnostic-runner.ts`: `clientCited = citedCount >= Math.ceil(executionsPerQuery / 2) || <a follow-up execution confirmed it>`). For the default single-execution config this collapses to exactly one grounding result, so the rule above is exact as stated. For multi-execution plans (`executionsPerQuery: 3`, the "pro" tier), a minority execution (1 of 3) can have grounded the client while the majority did not — the aggregate `cliente_foi_citado` would be `false` in that case, even though one execution's own grounding genuinely confirmed the client. **Per-object grounding (below) is what closes this** — the query-level boolean is now only a fallback, not the primary signal.
+
+**Per-object grounding, not just per-query:** `GeminiCitedObject` (motor) / `CitedObjectLike` (app) gained an optional `grounding_confirmed_client?: boolean` field, computed at merge time in `mergeCitedObjects` — each execution's *own* `cliente_foi_citado` (already a clean, typed boolean; no raw grounding-chunk parsing needed) is OR'd onto every object that execution contributed, across however many executions the query ran. A minority execution's confirmed grounding is enough to mark the object, independent of the query-level majority vote. Every caller now resolves `object.grounding_confirmed_client ?? query.cliente_foi_citado` — object-level truth first, query-level majority vote only as a fallback for objects where it wasn't computed (persisted data from before this field existed). This directly closes the multi-execution gap described in the paragraph above, without needing to parse `DiagnosticQueryRow.executions`' untyped grounding-chunk blob (the earlier "Alternatives rejected" concern) — the per-execution `cliente_foi_citado` was already there, cleanly typed, just not threaded through the merge.
+
+Callers updated to pass the query's real verdict:
+- `diagnostic-triage.ts`'s two `isCitedClientObject` call sites inside `computeTriage` (the coherence-check filter and the `competitorCited` detection), both passed `query.cliente_foi_citado`.
+- `rint-app/src/lib/diagnosis-board.ts`'s `hasCitedProductSignal`.
+- `rint-app/src/lib/diagnosis-report-bind.ts`'s `mentionedAttrsFromClientObjects` / `priceMismatchesFromClientObjects` (pass `true` explicitly — both already gate on `query.cliente_foi_citado` before reaching the call) and `crownFromEngineQueries`, which now builds a parallel `citedByQuery: boolean[]` (via a new `citedFlagsByQuery` helper using the exact same filter/order as the existing `citedObjectsByQuery`, so indices stay aligned) and passes it into `crownCompetitorSku`'s new optional `citedByQuery?: boolean[]` parameter.
+
+Callers left unmigrated (`gemini-structured.ts`'s internal `competitorCitedObjects`/`minCompetitorPrice` — confirmed to have no live production caller) keep the parameter as `undefined`, which preserves the exact prior fuzzy-always-on behavior — this change is additive, not a forced migration.
+
+Every caller above was updated a second time, same day, to prefer the new per-object `grounding_confirmed_client` over the per-query boolean it was passing (`object.grounding_confirmed_client ?? query.cliente_foi_citado`, or `?? true` at the two `diagnosis-report-bind.ts` sites that already gate on `query.cliente_foi_citado` before the loop). `mergeCitedObjects` (`gemini-structured.ts`) gained an optional second parameter, `groundingConfirmedByList?: Array<boolean | undefined>` — one entry per execution list being merged — and stamps each surviving merged object with the OR across every contributing execution's own `cliente_foi_citado`. `dominant-diagnostic-runner.ts`'s one call site now passes `executions.map((e) => e.structured.cliente_foi_citado)` alongside the existing `objetos_citados` lists.
+
+## Consequences
+
+- `triage_result.coherence_level` can no longer be pushed to `incoerente` by a fuzzy name match alone when grounding says the query wasn't cited — closes the false-"incoherent" narrative risk documented in the coherence-check mechanism above. Tests: `tests/dominant-diagnostics.test.ts` ("does not fabricate incoherence from a name-only fuzzy match when grounding says this query did not cite the client").
+- `competitorCited`/`track_produto` detection and the report's crowned-competitor panel are more resistant to name-collision misclassification, at per-object (execution-level) granularity for multi-execution queries, and exact per-query granularity for single-execution queries. Tests: `tests/gemini-structured.test.ts` ("groundingConfirmedClient — strict grounding wins over the fuzzy name fallback"), `rint-app/src/lib/cited-offer.test.ts` ("crowns a competitor whose name fuzzy-matches the client brand when grounding says these queries did not cite the client").
+- **Closed, same day:** the multi-execution majority-vote gap (a minority execution's genuinely-grounded client object surviving the merge while the query-level vote said `false`, then wrongly losing its fuzzy fallback) is fixed by the per-object `grounding_confirmed_client` field described above — object-level truth from the actual contributing execution(s), not the query-level aggregate. Only affected `executionsPerQuery > 1` ("pro" tier) queries with disagreement between executions; single-execution queries were never affected (the aggregate already equaled the one execution's own verdict). Test: `tests/gemini-structured.test.ts` covers `mergeCitedObjects`'s OR-across-executions stamping.
+- Residual gap, still accepted (narrower, unrelated root cause): a query where grounding DID confirm client citation (`cliente_foi_citado: true`, and every contributing execution agreed) but whose `objetos_citados` also contains a *different*, co-mentioned object that happens to fuzzy-match the client's name is not covered — that object still gets the fuzzy fallback, since nothing in the response distinguishes "the grounded client object" from "a different object Gemini also listed in a query that happened to cite the client." Closing this would require correlating each specific object to a resolved grounding-chunk *host*, not just knowing that *an* object in that execution was grounding-confirmed — i.e. true per-object attribution, which Gemini's response doesn't provide directly (see "Alternatives rejected" below).
+
+## Alternatives rejected
+
+- **Drop the fuzzy fallback entirely, strict host match only.** Rejected — a query can legitimately cite the client via grounding while `objetos_citados` lists several objects (client + competitors) with no host on some of them (Gemini's own `url` field is unreliable); the fuzzy fallback is the only signal left to attribute the right object to the client in that case.
+- **Thread raw resolved-grounding-chunk hosts (not just the per-execution `cliente_foi_citado` boolean) down to each object.** Rejected — the resolved-grounding-host list lives only inside `DiagnosticQueryRow.executions` (`Record<string, unknown>[]`, untyped), and parsing it correctly to attribute a specific host to a specific `objetos_citados` entry would add real fragility for a narrower risk reduction than the per-execution boolean (implemented above) already closes. This is what's left as the residual gap above — true per-object (not just per-execution) attribution.
