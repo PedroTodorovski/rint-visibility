@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   bindGroundingSupports,
   extractGroundingMetadata,
+  objectGroundingVerdicts,
   supportRefsFromSpans,
 } from "../src/lib/gemini-grounding.js";
 
@@ -154,5 +155,115 @@ describe("bindGroundingSupports", () => {
         ],
       ),
     ).toEqual([{ text: "Uma frase.", hosts: [], hrefs: [] }]);
+  });
+});
+
+describe("objectGroundingVerdicts", () => {
+  const supports = [
+    { text: "O Daily Boost aparece no site da Nuture.", hosts: ["nuture.com.br"], hrefs: [] },
+    { text: "AG1 continua o mais citado no Brasil.", hosts: ["drinkag1.com"], hrefs: [] },
+  ];
+  const nuture = { names: ["Nuture", "Daily Boost"] };
+  const ag1 = { names: ["AG1"] };
+
+  it("ADR-003 residual gap: confirms the grounded object and demotes the other co-mentioned one", () => {
+    // Both objects are named in the same already-cited query. Nuture's own sentence resolves to
+    // the client host; AG1's own sentence resolves elsewhere — once Nuture is positively
+    // confirmed, AG1 is demoted to `false` instead of inheriting the query-level "cited" via
+    // fuzzy name matching.
+    expect(objectGroundingVerdicts([nuture, ag1], supports, ["nuture.com.br"])).toEqual([
+      true,
+      false,
+    ]);
+  });
+
+  it("real bug this closes: a client name that is a text-prefix of a longer competitor name does not falsely deny the client", () => {
+    // "Acme" (client) is a literal substring of "Acme Studio" (competitor) — the exact shape of
+    // the motivating ADR-003 example. A sentence that names only "Acme Studio" must not be read
+    // as also naming "Acme": that would make the naive substring check wrongly attribute the
+    // competitor's host mismatch to the client's own object as a confident `false`.
+    const acme = { names: ["Acme", "Hero Sofa"] };
+    const acmeStudio = { names: ["Acme Studio", "Sofá Modular"] };
+    const ambiguousOnly = [
+      {
+        text: "A Acme Studio também tem um Sofá Modular parecido.",
+        hosts: ["acmestudio.example"],
+        hrefs: [],
+      },
+    ];
+    // No sentence unambiguously names "Acme" alone — the only sentence mentioning it is really
+    // about "Acme Studio". Both must come back with no signal, not a confident `false` for Acme.
+    expect(objectGroundingVerdicts([acme, acmeStudio], ambiguousOnly, ["acme.example"])).toEqual([
+      undefined,
+      undefined,
+    ]);
+
+    const withDedicatedSentence = [
+      { text: "A Acme vende o Hero Sofa direto no site.", hosts: ["acme.example"], hrefs: [] },
+      ...ambiguousOnly,
+    ];
+    // With a dedicated, unambiguous sentence for the client, it gets confirmed `true` and the
+    // distinctly-keyed "Acme Studio" is correctly demoted to `false` — the ambiguous sentence
+    // still contributes no signal to either.
+    expect(
+      objectGroundingVerdicts([acme, acmeStudio], withDedicatedSentence, ["acme.example"]),
+    ).toEqual([true, false]);
+  });
+
+  it("does not penalize the client's own product cited only through a marketplace/reseller host", () => {
+    // The client's real product is named in a sentence that resolves to a reseller's host, not
+    // the client's own domain — a normal, common pattern (the codebase's own seller/marketplace
+    // handling elsewhere assumes this). With no OTHER object positively confirmed as the client
+    // in this result, this must stay `undefined` (defer to the existing per-query fallback), not
+    // a confident `false` that would wrongly exclude the client's own object from its own report.
+    const clientViaMarketplace = [
+      {
+        text: "A Nuture Daily Boost está disponível no Mercado Livre.",
+        hosts: ["mercadolivre.com.br"],
+        hrefs: [],
+      },
+    ];
+    expect(objectGroundingVerdicts([nuture], clientViaMarketplace, ["nuture.com.br"])).toEqual([
+      undefined,
+    ]);
+  });
+
+  it("a sentence naming two different objects at once contributes no signal to either", () => {
+    const compound = [
+      {
+        text: "Diferente da Nuture, a AG1 custa mais.",
+        hosts: ["nuture.com.br"],
+        hrefs: [],
+      },
+    ];
+    expect(objectGroundingVerdicts([nuture, ag1], compound, ["nuture.com.br"])).toEqual([
+      undefined,
+      undefined,
+    ]);
+  });
+
+  it("returns all undefined when no support sentence names any object at all", () => {
+    const other = { names: ["Vitamina D3K2"] };
+    expect(objectGroundingVerdicts([other], supports, ["nuture.com.br"])).toEqual([undefined]);
+  });
+
+  it("ignores names too short to match safely", () => {
+    const short = { names: ["Ag"] };
+    expect(objectGroundingVerdicts([short], supports, ["nuture.com.br"])).toEqual([undefined]);
+  });
+
+  it("returns undefined for every object with no client hosts to compare against", () => {
+    expect(objectGroundingVerdicts([nuture, ag1], supports, [])).toEqual([undefined, undefined]);
+  });
+
+  it("matches case- and accent-insensitively", () => {
+    const accented = [{ text: "A NÚTURE tem o Daily Boost.", hosts: ["nuture.com.br"], hrefs: [] }];
+    expect(objectGroundingVerdicts([{ names: ["nûture"] }], accented, ["nuture.com.br"])).toEqual([
+      true,
+    ]);
+  });
+
+  it("returns an empty array for an empty object list", () => {
+    expect(objectGroundingVerdicts([], supports, ["nuture.com.br"])).toEqual([]);
   });
 });

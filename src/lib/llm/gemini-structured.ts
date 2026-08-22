@@ -14,12 +14,16 @@ export type GeminiCitedObject = {
   imagem_url: string | null;
   atributos: string[];
   /**
-   * Engine-computed, not part of Gemini's own output: true when at least one execution that
-   * contributed this object (post-merge, see `mergeCitedObjects`) had its own grounding-derived
-   * `cliente_foi_citado` true; false when every contributing execution said false; absent when
-   * never computed (a single, unmerged parse, or persisted data from before this field existed).
-   * Lets `isCitedClientObject` resolve grounding per object instead of only per query — closes the
-   * multi-execution majority-vote gap described in ADR-003.
+   * Engine-computed, not part of Gemini's own output. Two layers, finer one wins:
+   * (1) true per-object attribution — a grounded sentence that actually names this object
+   * resolved to the client's own host (see `objectHostMatchFromSupports` in gemini-grounding.ts),
+   * stamped in `recordDiagnoseExecution` before merge. (2) where no sentence names the object at
+   * all, falls back to the coarser per-execution `cliente_foi_citado` OR'd across every execution
+   * that contributed this object (see `mergeCitedObjects`). Absent when neither layer had a signal
+   * (a single, unmerged parse, or persisted data from before this field existed). Lets
+   * `isCitedClientObject` resolve grounding per object instead of only per query or per execution —
+   * closes both the multi-execution majority-vote gap and the same-query co-mention gap from
+   * ADR-003.
    */
   grounding_confirmed_client?: boolean;
 };
@@ -213,10 +217,13 @@ function mergeObject(left: GeminiCitedObject, right: GeminiCitedObject): GeminiC
 
 /**
  * `groundingConfirmedByList[i]` — pass execution `i`'s own `cliente_foi_citado` when known
- * (`dominant-diagnostic-runner.ts` passes one per execution). Stamps each surviving merged object
- * with `grounding_confirmed_client`, OR'd across every execution that contributed it — a minority
- * execution that genuinely grounded the client is enough, even if the query-level majority vote
- * disagrees. Omit the second argument to preserve the exact prior behavior (no field set).
+ * (`dominant-diagnostic-runner.ts` passes one per execution). Used as a per-execution *fallback*
+ * only: when an object already carries its own `grounding_confirmed_client` (the finer per-object
+ * attribution stamped in `recordDiagnoseExecution` — see the field's doc comment), that value wins
+ * and the coarser per-execution one is not applied over it. Objects with no per-object signal keep
+ * getting the per-execution fallback, OR'd across every execution that contributed them — a
+ * minority execution that genuinely grounded the client is enough, even if the query-level majority
+ * vote disagrees. Omit the second argument to preserve the exact prior behavior (no field set).
  */
 export function mergeCitedObjects(
   lists: GeminiCitedObject[][],
@@ -227,7 +234,9 @@ export function mergeCitedObjects(
     const grounded = groundingConfirmedByList?.[index];
     for (const object of list) {
       const stamped =
-        grounded === undefined ? object : { ...object, grounding_confirmed_client: grounded };
+        object.grounding_confirmed_client !== undefined || grounded === undefined
+          ? object
+          : { ...object, grounding_confirmed_client: grounded };
       const key = objectKey(stamped);
       const previous = map.get(key);
       map.set(key, previous ? mergeObject(previous, stamped) : stamped);

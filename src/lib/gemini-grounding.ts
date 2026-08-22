@@ -1,4 +1,10 @@
-import { isShopifyAdminHost, normalizeHost, type ResolvedGroundingUrl } from "./citation-gold.js";
+import {
+  hostMatchesClient,
+  isShopifyAdminHost,
+  normalizeHost,
+  type ResolvedGroundingUrl,
+} from "./citation-gold.js";
+import { foldIdentity } from "./cited-offer.js";
 
 export type GroundingChunk = {
   uri: string;
@@ -154,4 +160,66 @@ export function bindGroundingSupports(
     });
   }
   return bound;
+}
+
+function needlesFor(names: Array<string | null | undefined>): string[] {
+  return [
+    ...new Set(
+      names
+        .map((name) => (name ?? "").trim())
+        .filter((name) => name.length >= 3)
+        .map(foldIdentity),
+    ),
+  ];
+}
+
+/**
+ * ADR-003 residual gap, closed: true per-object grounding attribution, computed together for
+ * every cited object in one execution so the objects can disambiguate each other. `bindGroundingSupports`
+ * already resolves each grounded sentence of the shopper answer to its own host(s) — for each
+ * sentence, this finds which of the given objects it names (by marca/produto/loja) and, only when
+ * the sentence names EXACTLY ONE of them, uses that sentence's resolved host as a signal for that
+ * one object. A sentence that names more than one object at once (e.g. a client brand that is
+ * itself a text prefix of a competitor's longer brand — "Acme" inside "Acme Studio" — or a
+ * compound sentence naming both) contributes no signal to any of them: it's ambiguous, not
+ * evidence.
+ *
+ * Once at least one object is positively confirmed (a sentence naming only it resolved to the
+ * client's own host), every *other*, distinctly-keyed object gets `false` — not because its own
+ * sentence failed to resolve to the client (that would wrongly penalize the client's own product
+ * cited only via a marketplace/reseller listing, a normal and common pattern), but because a
+ * specific alternative has now been positively identified as the real client mention in this same
+ * result, so this one does not need to borrow that identity via fuzzy name matching. If NO object
+ * gets a positive confirmation at all, every object gets `undefined` (no signal) — this needs no
+ * extra Gemini call, since the data was already being computed and thrown away downstream of the
+ * sentence-level match. Callers must treat `undefined` as "no signal" and fall back to the coarser
+ * per-execution `cliente_foi_citado`, never as a negative.
+ */
+export function objectGroundingVerdicts(
+  objects: Array<{ names: Array<string | null | undefined> }>,
+  supports: BoundGroundingSupport[],
+  clientHosts: string[],
+): Array<boolean | undefined> {
+  const needleSets = objects.map((object) => needlesFor(object.names));
+  const results: Array<boolean | undefined> = objects.map(() => undefined);
+  if (clientHosts.length === 0) return results;
+
+  for (const support of supports) {
+    const haystack = foldIdentity(support.text);
+    const matchedIndexes: number[] = [];
+    needleSets.forEach((needles, index) => {
+      if (needles.length > 0 && needles.some((needle) => haystack.includes(needle))) {
+        matchedIndexes.push(index);
+      }
+    });
+    if (matchedIndexes.length !== 1) continue;
+    const index = matchedIndexes[0] as number;
+    if (support.hosts.some((host) => hostMatchesClient(host, clientHosts))) {
+      results[index] = true;
+    }
+  }
+
+  const confirmed = results.some((value) => value === true);
+  if (!confirmed) return results;
+  return results.map((value) => value ?? false);
 }

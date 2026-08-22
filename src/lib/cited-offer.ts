@@ -15,6 +15,13 @@ export type CitedObjectLike = {
   qualidade?: string | null;
   imagem_url?: string | null;
   atributos?: string[] | null;
+  /**
+   * Engine-computed per-object grounding verdict (`grounding_confirmed_client` on
+   * `GeminiCitedObject`, `src/lib/llm/gemini-structured.ts`, ADR-003) — takes precedence over
+   * any per-query verdict when present. Absent on data persisted before this field existed, or
+   * where this repo's helpers weren't threaded it through.
+   */
+  grounding_confirmed_client?: boolean;
 };
 
 export type ClientOfferIdentity = {
@@ -100,10 +107,25 @@ export function sellerFromObject(object: CitedObjectLike): string | null {
   return null;
 }
 
-export function isClientCitedObject(object: CitedObjectLike, client: ClientOfferIdentity): boolean {
+/**
+ * `groundingConfirmedClient` — pass the object's own `grounding_confirmed_client` (preferred) or
+ * the query's `cliente_foi_citado` fallback when known. Engine twins: `isCitedClientObject` in
+ * `src/lib/llm/gemini-structured.ts` (this repo) and `isClientCitedObject` in
+ * `rint-app/src/lib/cited-offer.ts`. Grounding is the source of truth: once it has decided this
+ * object is NOT the client, a loose name/brand substring match must not override that. The fuzzy
+ * fallback stays in play only to disambiguate WHICH object represents the client among several
+ * cited objects, or when the caller has no grounding verdict to offer (`undefined`).
+ */
+export function isClientCitedObject(
+  object: CitedObjectLike,
+  client: ClientOfferIdentity,
+  groundingConfirmedClient?: boolean,
+): boolean {
   const citedHost = hostFromUrl(object.url);
   const clientHost = hostFromUrl(client.url);
   if (citedHost && clientHost && citedHost === clientHost) return true;
+  if (groundingConfirmedClient === false) return false;
+
   const cited = foldIdentity(object.marca) || foldIdentity(object.produto);
   if (!cited) return false;
   const names = [client.name, client.brand].map(foldIdentity).filter(Boolean);
@@ -217,9 +239,20 @@ export function emptyCrownedOffer(): CrownedOffer {
 export function crownCompetitorSku(input: {
   objectsByQuery: CitedObjectLike[][];
   client: ClientOfferIdentity;
+  /** Per-query grounded citation verdict, same order as `objectsByQuery`. See `isClientCitedObject`. */
+  citedByQuery?: boolean[];
 }): CrownedOffer {
   const citing = input.objectsByQuery
-    .map((objects) => objects.filter((object) => !isClientCitedObject(object, input.client)))
+    .map((objects, index) =>
+      objects.filter(
+        (object) =>
+          !isClientCitedObject(
+            object,
+            input.client,
+            object.grounding_confirmed_client ?? input.citedByQuery?.[index],
+          ),
+      ),
+    )
     .filter((objects) => objects.length > 0);
   const persisted = citing.flat();
   const n = citing.length;
@@ -398,6 +431,10 @@ function fillNulls<T extends CitedObjectLike>(left: T, right: CitedObjectLike): 
     qualidade: left.qualidade ?? right.qualidade ?? null,
     imagem_url: left.imagem_url ?? right.imagem_url ?? null,
     atributos,
+    // Same "fills nulls only, never overwrites the first turn" rule as every field above —
+    // without this, a follow-up's freshly-stamped grounding verdict (ADR-003) was silently
+    // discarded whenever it matched an existing object, since this field wasn't listed here.
+    grounding_confirmed_client: left.grounding_confirmed_client ?? right.grounding_confirmed_client,
   };
 }
 

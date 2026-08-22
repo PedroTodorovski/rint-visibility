@@ -12,10 +12,15 @@ import {
 } from "../lib/cited-offer.js";
 import { resolveCitedOfferImage, stampStructuredCitedImage } from "../lib/cited-offer-image.js";
 import { AppError } from "../lib/errors.js";
-import { bindGroundingSupports } from "../lib/gemini-grounding.js";
+import {
+  type BoundGroundingSupport,
+  bindGroundingSupports,
+  objectGroundingVerdicts,
+} from "../lib/gemini-grounding.js";
 import { resolveDiagnosticGrounding } from "../lib/grounding-resolve.js";
 import {
   citedObjectsFromStructured,
+  type GeminiCitedObject,
   hydrateGeminiStructured,
   mergeCitedObjects,
 } from "../lib/llm/gemini-structured.js";
@@ -187,6 +192,29 @@ export function selectDominantSku(
   };
 }
 
+/**
+ * ADR-003 residual gap: stamp each cited object with its own grounding verdict — not just the
+ * execution's aggregate one — computed together via `objectGroundingVerdicts` so co-mentioned
+ * objects can disambiguate each other instead of each being checked in isolation.
+ * `mergeCitedObjects` falls back to the per-execution boolean for objects left `undefined`.
+ */
+function stampObjectsGrounding(
+  objects: GeminiCitedObject[] | undefined,
+  supports: BoundGroundingSupport[],
+  clientHosts: string[],
+): GeminiCitedObject[] {
+  const list = objects ?? [];
+  const verdicts = objectGroundingVerdicts(
+    list.map((object) => ({ names: [object.marca, object.produto, object.loja] })),
+    supports,
+    clientHosts,
+  );
+  return list.map((object, index) => {
+    const matched = verdicts[index];
+    return matched === undefined ? object : { ...object, grounding_confirmed_client: matched };
+  });
+}
+
 async function recordDiagnoseExecution(input: {
   provider: LlmProviderId;
   result: LlmStructuredDiagnosticResult;
@@ -199,22 +227,29 @@ async function recordDiagnoseExecution(input: {
   const competitorUrl = input.result.structured.concorrente_citado_url;
   const validation = competitorUrl ? await filterAliveUrls([competitorUrl]) : new Map();
   const competitorAlive = competitorUrl ? validation.get(competitorUrl)?.alive === true : false;
+  const identity = {
+    storeName: input.store.name,
+    domain: input.store.domain,
+    productUrl: input.sku.url,
+    productName: input.sku.shopify_data.name,
+  };
   const citation = scoreClientCitation({
     text: input.result.rawText,
-    identity: {
-      storeName: input.store.name,
-      domain: input.store.domain,
-      productUrl: input.sku.url,
-      productName: input.sku.shopify_data.name,
-    },
+    identity,
     resolved: await resolveDiagnosticGrounding(input.result),
     llmClaimedCited: input.result.structured.cliente_foi_citado,
   });
   const resolved = citation.resolved;
+  const boundSupports = bindGroundingSupports(input.result.groundingSupports, resolved);
   return {
     raw_text: input.result.rawText,
     structured: {
       ...input.result.structured,
+      objetos_citados: stampObjectsGrounding(
+        input.result.structured.objetos_citados,
+        boundSupports,
+        citation.client_hosts,
+      ),
       cliente_foi_citado: citation.cited,
       concorrente_citado_url: competitorAlive ? competitorUrl : null,
     },
@@ -224,7 +259,7 @@ async function recordDiagnoseExecution(input: {
     mocked: input.result.mocked,
     provider: input.provider,
     citation,
-    grounding_supports: bindGroundingSupports(input.result.groundingSupports, resolved),
+    grounding_supports: boundSupports,
     measured_at: input.measuredAt,
     ...(input.followUp ? { follow_up: true as const, follow_up_query: input.followUp.query } : {}),
   };
@@ -472,6 +507,7 @@ async function completeCitedOffers(input: {
     const objectsByQuery = skuDrafts.map((draft) =>
       citedObjectsFromStructured(draft.gemini_structured),
     );
+    const citedByQuery = skuDrafts.map((draft) => draft.gemini_structured.cliente_foi_citado);
     const crown = crownCompetitorSku({
       client: {
         name: sku.row.shopify_data.name,
@@ -479,6 +515,7 @@ async function completeCitedOffers(input: {
         url: sku.row.url,
       },
       objectsByQuery,
+      citedByQuery,
     });
     const plan = planCitedOfferFollowUp(crown);
     if (!plan) continue;
@@ -492,35 +529,45 @@ async function completeCitedOffers(input: {
     });
     const last = skuDrafts[skuDrafts.length - 1];
     if (!last || isDayPhotoCopy(last) || !result) continue;
+    const followUpIdentity = {
+      storeName: input.store.name,
+      domain: input.store.domain,
+      productUrl: sku.row.url,
+      productName: sku.row.shopify_data.name,
+    };
+    const resolved = await resolveDiagnosticGrounding(result);
+    const citation = scoreClientCitation({
+      text: result.rawText,
+      identity: followUpIdentity,
+      resolved,
+      llmClaimedCited: result.structured.cliente_foi_citado,
+    });
+    const followUpSupports = bindGroundingSupports(result.groundingSupports, resolved);
+    const stampedResultStructured = {
+      ...result.structured,
+      objetos_citados: stampObjectsGrounding(
+        result.structured.objetos_citados,
+        followUpSupports,
+        citation.client_hosts,
+      ),
+    };
     const existing = citedObjectsFromStructured(last.gemini_structured);
-    const incoming = citedObjectsFromStructured(result.structured);
+    const incoming = citedObjectsFromStructured(stampedResultStructured);
     last.gemini_structured = hydrateGeminiStructured({
       ...last.gemini_structured,
       objetos_citados: mergeFollowUpCitedObjects(existing, incoming),
     });
-    const resolved = await resolveDiagnosticGrounding(result);
-    const citation = scoreClientCitation({
-      text: result.rawText,
-      identity: {
-        storeName: input.store.name,
-        domain: input.store.domain,
-        productUrl: sku.row.url,
-        productName: sku.row.shopify_data.name,
-      },
-      resolved,
-      llmClaimedCited: result.structured.cliente_foi_citado,
-    });
     const executions = [...((last.executions ?? []) as unknown as QueryExecutionRecord[])];
     executions.push({
       raw_text: result.rawText,
-      structured: result.structured,
+      structured: stampedResultStructured,
       grounding_urls: result.groundingUrls,
       dead_urls: [],
       model: result.model,
       mocked: result.mocked,
       provider: primary.provider,
       citation,
-      grounding_supports: bindGroundingSupports(result.groundingSupports, resolved),
+      grounding_supports: followUpSupports,
       follow_up: true,
     });
     last.executions = executions as unknown as Record<string, unknown>[];
@@ -548,6 +595,7 @@ async function hydrateCitedOfferImages(input: {
     const objectsByQuery = skuDrafts.map((draft) =>
       citedObjectsFromStructured(draft.gemini_structured),
     );
+    const citedByQuery = skuDrafts.map((draft) => draft.gemini_structured.cliente_foi_citado);
     const crown = crownCompetitorSku({
       client: {
         name: sku.row.shopify_data.name,
@@ -555,6 +603,7 @@ async function hydrateCitedOfferImages(input: {
         url: sku.row.url,
       },
       objectsByQuery,
+      citedByQuery,
     });
     if (crown.confidence !== "clear" || !crown.productKey) continue;
     const groundingUrls = skuDrafts.flatMap((draft) => {
