@@ -335,6 +335,7 @@ function trackLlmNextSteps(
           : null,
     },
     seo_api_phase_2: seoGaps.length > 0 ? seoGaps : unavailable("seo_api"),
+    decision_trace: brief.trace,
   };
 }
 
@@ -461,6 +462,7 @@ function trackProdutoNextSteps(snapshot: ShopifyProductSnapshot, queries: Diagno
       followup_reason: brief.followup_reason,
       contributions: brief.contributions,
     },
+    decision_trace: judgment.trace,
   };
 }
 
@@ -491,11 +493,13 @@ function trackPdpNextSteps(snapshot: ShopifyProductSnapshot) {
     return {
       owner: "o fundador na loja",
       move: judgment.move,
+      decision_trace: judgment.trace,
     };
   }
   return {
     owner: "o fundador na loja",
     move: judgment.move,
+    decision_trace: judgment.trace,
     first_action: brief.first_action,
     support_line: brief.support_line,
     page_brief: {
@@ -781,6 +785,23 @@ export function buildDiagnosticOutput(input: DiagnosticOutputInput): DiagnosticO
   const first_action = zeroConv
     ? `Esta semana: pause os anúncios deste produto no Meta. O dinheiro saiu e a loja não registrou nenhuma compra. Antes de gastar de novo, peça a quem opera a conta para confirmar se a compra está sendo medida e se o anúncio abre a página certa deste produto.`
     : `Esta semana: não aumente a verba deste produto no Meta. Cada compra nova está custando mais do que o preço na loja — você perde dinheiro quando o anúncio vende. Peça ao gestor de mídia para reduzir o lance ou pausar este produto até o custo por compra ficar abaixo do preço da vitrine.`;
+  const mediaTrace = [
+    {
+      id: "zero_conv",
+      question: "Gastou no Meta e vendeu zero unidades?",
+      fired: zeroConv,
+      answer: zeroConv ? "Sim" : "Não",
+      data: { spend, conversions },
+    },
+    {
+      id: "cac_above_card",
+      question: "Custo por venda ficou acima do preço do produto na loja?",
+      fired: !zeroConv && cacWaste,
+      answer: cacWaste ? "Sim" : "Não",
+      data: { cac: meta.cac, card_price: cardPrice },
+      note: zeroConv ? "Não avaliado — já pausou pelo gasto sem venda." : undefined,
+    },
+  ];
 
   return withHeadline(
     {
@@ -832,6 +853,7 @@ export function buildDiagnosticOutput(input: DiagnosticOutputInput): DiagnosticO
             ? "Conteúdo e mudança de produto não resolvem anúncio que não registra venda. Ajuste a medição e a página de destino primeiro."
             : "Escrever artigo ou mudar a fórmula não baixa o custo do anúncio. A ação desta semana é na conta de mídia.",
           no_direct_llm_causality_claim: true,
+          decision_trace: mediaTrace,
         },
         prazo: "1 a 2 semanas",
       },

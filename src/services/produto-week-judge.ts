@@ -6,6 +6,7 @@
  */
 
 import type { OfferConfidence } from "../lib/cited-offer.js";
+import { type DecisionStep, step } from "./decision-trace.js";
 
 type ProductFollowupReason = "missing_product" | "missing_seller" | "missing_facts" | null;
 type ProductPrimaryDimension = "preco" | "avaliacao" | "composicao" | "tamanho" | "embalagem";
@@ -68,6 +69,15 @@ export type ProductWeekJudgment = {
   primaryDimension: ProductLosingDimension;
   move: ProductMove | undefined;
   abstainReason: ProductWeekAbstainReason | null;
+  trace: DecisionStep[];
+};
+
+const DIMENSION_QUESTION: Record<ProductPrimaryDimension, string> = {
+  preco: "Diferença de preço real — mesma moeda, mesma unidade, 15% ou mais?",
+  avaliacao: "Diferença de avaliação real — os dois com nota, 0,4 estrela ou mais?",
+  composicao: "O concorrente tem um selo, certificação ou fórmula que a loja não declara?",
+  tamanho: "Tamanho ou dose realmente diferentes?",
+  embalagem: "Embalagem realmente diferente?",
 };
 
 /** Relative ticket gap below this is “parecido”, not a shopper-deciding loss. */
@@ -255,23 +265,61 @@ function abstainFromOffer(input: ProductWeekJudgeInput): ProductWeekAbstainReaso
 
 export function judgeProductWeek(input: ProductWeekJudgeInput): ProductWeekJudgment {
   const abstain = abstainFromOffer(input);
+  const offerTrace = step(
+    "offer_confidence",
+    "Há uma oferta do concorrente clara o suficiente para comparar (produto, loja e fatos definidos)?",
+    Boolean(abstain),
+    abstain ? `Não — ${abstain}` : "Sim",
+    { confidence: input.confidence, followup_reason: input.followupReason },
+  );
+
   if (abstain) {
     return {
       contributions: [],
       primaryDimension: null,
       move: undefined,
       abstainReason: abstain,
+      trace: [offerTrace],
     };
   }
+
+  // sizeCompetes/packCompetes mirror competingDimensions()'s own short-circuit: they
+  // only decide the trilha when nothing earlier in SHOPPER_ORDER already fired. The
+  // "decided" walk below reproduces that same gating for the trace's fired flags.
+  const flags: Record<ProductPrimaryDimension, boolean> = {
+    preco: priceCompetes(input),
+    avaliacao: ratingCompetes(input),
+    composicao: formulaCompetes(input),
+    tamanho: sizeCompetes(input),
+    embalagem: packCompetes(input),
+  };
+
+  let decided = false;
+  const dimensionTrace = SHOPPER_ORDER.map((dimension) => {
+    const value = flags[dimension];
+    const fired = value && !decided;
+    if (fired) decided = true;
+    return step(dimension, DIMENSION_QUESTION[dimension], fired, value ? "Sim" : "Não");
+  });
+  const trace = [offerTrace, ...dimensionTrace];
 
   const ranked = competingDimensions(input);
   const primary = ranked[0] ?? null;
   if (!primary) {
+    trace.push(
+      step(
+        "no_comparable_loss",
+        "Nenhuma diferença real encontrada em nenhum critério — aceitar a diferença como está?",
+        true,
+        "Sim",
+      ),
+    );
     return {
       contributions: [],
       primaryDimension: null,
       move: "aceitar_gap",
       abstainReason: "no_comparable_loss",
+      trace,
     };
   }
 
@@ -285,5 +333,6 @@ export function judgeProductWeek(input: ProductWeekJudgeInput): ProductWeekJudgm
     primaryDimension: primary,
     move: moveFor(primary),
     abstainReason: null,
+    trace,
   };
 }

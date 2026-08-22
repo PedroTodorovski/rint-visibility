@@ -21,6 +21,7 @@ import type {
   ShopifySkuRevenue,
 } from "../ports/types.js";
 import type { DiagnosticQueryRow } from "../repositories/diagnostic-tables.js";
+import { type DecisionStep, step } from "./decision-trace.js";
 import type {
   CoherenceLevel,
   DiagnosticTrack,
@@ -43,6 +44,7 @@ export type TriageOutcome = {
   coherenceLevel: CoherenceLevel;
   track: DiagnosticTrack;
   checks: Record<string, unknown>;
+  trace: DecisionStep[];
 };
 
 function normalized(text: string | null | undefined): string {
@@ -231,6 +233,78 @@ export function computeTriage(input: TriageInput): TriageOutcome {
     track = "track_pdp";
   }
 
+  const mediaWaste = hasMediaWaste(input.mediaSignals, input.skus[0]?.shopify.currentPrice ?? 0);
+
+  // Same order, same booleans as the if/else above — first "yes" wins, rest are
+  // recorded as "no" so the admin X-ray can show the roads not taken.
+  const gates: Array<[string, string, boolean, Record<string, unknown>]> = [
+    [
+      "storefront_closed",
+      "A porta pública da loja está fechada (senha ou bloqueio)?",
+      storefrontClosed,
+      { storefront_closed: storefrontClosed },
+    ],
+    [
+      "shop_mismatch",
+      "A loja está ligada, mas este produto não está cadastrado nela — e não é um marketplace conhecido?",
+      shopMismatch,
+      { shop_mismatch: shopMismatch },
+    ],
+    [
+      "incoherent",
+      "A resposta da IA é incoerente — preço ou marca citados não batem com o que a loja realmente vende?",
+      coherenceLevel === "incoerente",
+      { coherence_level: coherenceLevel },
+    ],
+    [
+      "citation_gap",
+      "A IA citou você em menos perguntas do que o total — incluindo zero de todas?",
+      citationGap,
+      { citation_client: citationClient, citation_total: citationTotal },
+    ],
+    [
+      "missing_street_schema",
+      "A página pública está aberta, mas não expõe a ficha técnica legível pela IA — ou nunca verificamos?",
+      missingStreetSchema || unverifiedStreet,
+      { missing_street_schema: missingStreetSchema, unverified_street: unverifiedStreet },
+    ],
+    [
+      "thin_or_partial",
+      "Os atributos que a IA citou não batem com o cadastro, ou o cadastro em si é raso?",
+      coherenceLevel === "parcialmente_coerente" || thinCatalog,
+      { coherence_level: coherenceLevel, thin_catalog: thinCatalog },
+    ],
+    [
+      "competitor_cited",
+      "A IA citou um concorrente específico no lugar de você?",
+      competitorCited,
+      { competitor_cited: competitorCited },
+    ],
+    [
+      "media_waste",
+      "O anúncio no Meta está gastando sem vender, ou o custo por venda ficou acima do preço do produto?",
+      mediaWaste,
+      { media_waste: mediaWaste },
+    ],
+  ];
+
+  let decided = false;
+  const trace: DecisionStep[] = gates.map(([id, question, value, data]) => {
+    const fired = value && !decided;
+    if (fired) decided = true;
+    return step(id, question, fired, value ? "Sim" : "Não", data);
+  });
+  if (!decided) {
+    trace.push(
+      step(
+        "fallback",
+        "Nenhuma das perguntas anteriores bateu — sobra alguma causa?",
+        true,
+        "Sim — nenhuma bateu, então a causa vira Trilha Página por eliminação.",
+      ),
+    );
+  }
+
   return {
     coherenceLevel,
     track,
@@ -238,12 +312,10 @@ export function computeTriage(input: TriageInput): TriageOutcome {
       one_dominant_track: true,
       client_cited: clientCited,
       competitor_cited: competitorCited,
-      media_waste_detected: hasMediaWaste(
-        input.mediaSignals,
-        input.skus[0]?.shopify.currentPrice ?? 0,
-      ),
+      media_waste_detected: mediaWaste,
       storefront_not_public: storefrontClosed,
       comparisons: checks,
     },
+    trace,
   };
 }

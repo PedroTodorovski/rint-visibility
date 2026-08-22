@@ -187,6 +187,77 @@ export async function registerDiagnosticsRoutes(
     return reply.code(200).send(payload);
   });
 
+  // ── Admin X-ray — cross-tenant, no workspace_id scoping ──────────────────
+  // Access control lives entirely in rint-app (super_admin gate on /admin/*).
+  // The engine trusts whoever holds the shared bearer key, same as every
+  // other route here — these two just skip the store-ownership filter.
+
+  app.get("/admin/diagnostics", async (request, reply) => {
+    const query = request.query as { page?: string; limit?: string };
+    const requestedPage = Math.max(1, Number.parseInt(query.page ?? "1", 10) || 1);
+    const limit = Math.min(50, Math.max(1, Number.parseInt(query.limit ?? "20", 10) || 20));
+    // Fetch by the requested page directly rather than clamping the offset to a
+    // count fetched first — count and list have no data dependency on each other,
+    // so they can run concurrently. A page past the end just comes back empty.
+    const [total, jobs] = await Promise.all([
+      repos.jobs.countAll(),
+      repos.jobs.listAll({ limit, offset: (requestedPage - 1) * limit }),
+    ]);
+    const totalPages = Math.max(1, Math.ceil(total / limit));
+    const page = requestedPage;
+    const jobIds = jobs.map((job) => job.id);
+    const storeIds = [...new Set(jobs.map((job) => job.store_id))];
+    const [skus, queries, diagnostics, stores] = await Promise.all([
+      repos.diagnosticSkus.listByJobIds(jobIds),
+      repos.diagnosticQueries.listByJobIds(jobIds),
+      repos.diagnostics.listByJobIds(jobIds),
+      repos.stores.listByIds(storeIds),
+    ]);
+    const storeById = new Map(stores.map((store) => [store.id, store]));
+    // summarizeDiagnosticJobs derives each summary from jobs via a single .map(),
+    // so summaries[i] always corresponds to jobs[i] — no per-row lookup needed.
+    const summaries = summarizeDiagnosticJobs(jobs, skus, queries, diagnostics);
+
+    return reply.code(200).send({
+      jobs: summaries.map((summary, index) => {
+        const job = jobs[index];
+        const store = job ? storeById.get(job.store_id) : undefined;
+        return {
+          ...summary,
+          store_id: job?.store_id ?? null,
+          store_name: store?.name ?? null,
+          store_domain: store?.domain ?? null,
+          workspace_id: store?.workspace_id ?? null,
+        };
+      }),
+      page,
+      limit,
+      total,
+    });
+  });
+
+  app.get("/admin/diagnostics/:jobId", async (request, reply) => {
+    // Read-only audit screen — unlike the tenant-facing route, this one must not
+    // mutate job status as a side effect of being viewed (failStaleDiagnosticJob
+    // writes "failed" for a stale-looking job, which could race a worker that's
+    // still legitimately processing it).
+    const { jobId } = request.params as { jobId: string };
+    const job = await repos.jobs.findById(jobId);
+    if (!job) throw notFound(`Job ${jobId} not found`);
+
+    const [payload, store] = await Promise.all([
+      diagnosticPayload(repos, jobId),
+      repos.stores.findById(job.store_id),
+    ]);
+
+    return reply.code(200).send({
+      ...payload,
+      store: store
+        ? { id: store.id, name: store.name, domain: store.domain, workspace_id: store.workspace_id }
+        : null,
+    });
+  });
+
   app.get("/diagnostics/latest", async (request, reply) => {
     const workspaceId = requireWorkspaceId(request);
     const store = await repos.stores.requireByWorkspaceId(workspaceId);

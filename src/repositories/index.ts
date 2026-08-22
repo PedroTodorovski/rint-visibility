@@ -42,6 +42,8 @@ export type StoresRepositoryLike = {
   requireByWorkspaceId(workspaceId: string): Promise<StoreRow>;
   upsert(workspaceId: string, input: UpsertStoreInput): Promise<StoreRow>;
   deleteByWorkspaceId(workspaceId: string): Promise<void>;
+  findById(storeId: string): Promise<StoreRow | null>;
+  listByIds(storeIds: string[]): Promise<StoreRow[]>;
 };
 
 export type ProductsRepositoryLike = {
@@ -107,6 +109,8 @@ export type JobsRepositoryLike = Pick<
   | "listCompletedSince"
   | "listInFlight"
   | "countByStoreId"
+  | "listAll"
+  | "countAll"
 >;
 export type DiagnosticSkusRepositoryLike = Pick<
   DiagnosticSkusRepository,

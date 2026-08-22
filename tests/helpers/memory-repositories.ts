@@ -100,6 +100,16 @@ export function createMemoryRepositories(): VisibilityRepositories {
         probeRunsByStore.delete(store.id);
         weeklyScoresByStore.delete(store.id);
       },
+      async findById(storeId: string) {
+        for (const store of storesByWorkspace.values()) {
+          if (store.id === storeId) return store;
+        }
+        return null;
+      },
+      async listByIds(storeIds: string[]) {
+        const idSet = new Set(storeIds);
+        return [...storesByWorkspace.values()].filter((store) => idSet.has(store.id));
+      },
     },
     products: {
       async listByStoreId(storeId: string) {
@@ -541,6 +551,16 @@ export function createMemoryRepositories(): VisibilityRepositories {
       },
       async listInFlight() {
         return jobRows.filter((row) => row.status === "pending" || row.status === "running");
+      },
+      async listAll(options: { limit?: number; offset?: number } = {}) {
+        const limit = options.limit ?? 20;
+        const offset = options.offset ?? 0;
+        return [...jobRows]
+          .sort((a, b) => b.created_at.localeCompare(a.created_at))
+          .slice(offset, offset + limit);
+      },
+      async countAll() {
+        return jobRows.length;
       },
     },
     diagnosticSkus: {

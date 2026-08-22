@@ -268,6 +268,31 @@ export class JobsRepository {
     return (data ?? []) as JobRow[];
   }
 
+  /** Cross-tenant — admin X-ray only. Never expose to a workspace-scoped route. */
+  async listAll(options: { limit?: number; offset?: number } = {}): Promise<JobRow[]> {
+    const limit = options.limit ?? 20;
+    const offset = options.offset ?? 0;
+
+    const { data, error } = await this.db
+      .from("jobs")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (error) throw mapPostgrestError(error, "Failed to list diagnostic jobs (admin)");
+    return (data ?? []) as JobRow[];
+  }
+
+  /** Cross-tenant — admin X-ray only. Never expose to a workspace-scoped route. */
+  async countAll(): Promise<number> {
+    const { count, error } = await this.db
+      .from("jobs")
+      .select("id", { count: "exact", head: true });
+
+    if (error) throw mapPostgrestError(error, "Failed to count diagnostic jobs (admin)");
+    return count ?? 0;
+  }
+
   async countByStoreId(storeId: string): Promise<number> {
     const { count, error } = await this.db
       .from("jobs")

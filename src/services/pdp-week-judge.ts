@@ -5,6 +5,8 @@
  * Pure rules. No I/O. No Gemini.
  */
 
+import { type DecisionStep, step } from "./decision-trace.js";
+
 export type StorefrontAccess = "open" | "password" | "blocked" | "unverified";
 
 export type PageMove =
@@ -28,26 +30,58 @@ export type PageWeekJudgeInput = {
 export type PageWeekJudgment = {
   move: PageMove | undefined;
   abstainReason: PageWeekAbstainReason | null;
+  trace: DecisionStep[];
 };
 
 export function judgePageWeek(input: PageWeekJudgeInput): PageWeekJudgment {
+  const gates: Array<[string, string, boolean]> = [
+    ["password", "A página pede senha?", input.access === "password"],
+    ["blocked", "A página está bloqueada?", input.access === "blocked"],
+    [
+      "panel_mismatch",
+      "A loja está ligada, mas este produto está registrado em outro painel — e não é marketplace conhecido?",
+      input.panelMismatch && !input.marketplaceUrl,
+    ],
+    ["unverified", "Ainda não conseguimos verificar se a página é mesmo pública?", input.access === "unverified"],
+    ["not_connected", "Não há loja ligada a este produto?", !input.shopifyConnected],
+    [
+      "missing_schema",
+      "A página está aberta, mas sem a ficha técnica legível pela IA?",
+      input.access === "open" && input.hasJsonLd === false,
+    ],
+  ];
+
+  let decided = false;
+  const trace: DecisionStep[] = gates.map(([id, question, value]) => {
+    const fired = value && !decided;
+    if (fired) decided = true;
+    return step(id, question, fired, value ? "Sim" : "Não", { value });
+  });
+
+  function finish(result: Omit<PageWeekJudgment, "trace">): PageWeekJudgment {
+    if (!decided) {
+      trace.push(step("ok", "Nenhuma das anteriores bateu — a página está ok?", true, "Sim"));
+    }
+    return { ...result, trace };
+  }
+
   if (input.access === "password") {
-    return { move: "abrir_senha", abstainReason: null };
+    return finish({ move: "abrir_senha", abstainReason: null });
   }
   if (input.access === "blocked") {
-    return { move: "tirar_bloqueio", abstainReason: null };
+    return finish({ move: "tirar_bloqueio", abstainReason: null });
   }
   if (input.panelMismatch && !input.marketplaceUrl) {
-    return { move: "ligar_loja_da_url", abstainReason: null };
+    return finish({ move: "ligar_loja_da_url", abstainReason: null });
   }
   if (input.access === "unverified") {
-    return { move: "conferir_publico", abstainReason: null };
+    return finish({ move: "conferir_publico", abstainReason: null });
   }
   if (!input.shopifyConnected) {
-    return { move: undefined, abstainReason: "buraco" };
+    return finish({ move: undefined, abstainReason: "buraco" });
   }
   if (input.access === "open" && input.hasJsonLd === false) {
-    return { move: "expor_schema", abstainReason: null };
+    return finish({ move: "expor_schema", abstainReason: null });
   }
-  return { move: undefined, abstainReason: "ok" };
+  return finish({ move: undefined, abstainReason: "ok" });
 }
