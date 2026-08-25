@@ -42,7 +42,11 @@ export function judgePageWeek(input: PageWeekJudgeInput): PageWeekJudgment {
       "A loja está ligada, mas este produto está registrado em outro painel — e não é marketplace conhecido?",
       input.panelMismatch && !input.marketplaceUrl,
     ],
-    ["unverified", "Ainda não conseguimos verificar se a página é mesmo pública?", input.access === "unverified"],
+    [
+      "unverified",
+      "Ainda não conseguimos verificar se a página é mesmo pública?",
+      input.access === "unverified",
+    ],
     ["not_connected", "Não há loja ligada a este produto?", !input.shopifyConnected],
     [
       "missing_schema",
