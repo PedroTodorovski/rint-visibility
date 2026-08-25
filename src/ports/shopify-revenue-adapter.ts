@@ -176,14 +176,15 @@ export function createShopifyRevenuePort(
       let revenue = 0;
       const orderIds = new Set<string>();
 
-      for (let page = 0; page < 20; page++) {
-        const response = await fetchImpl(
-          `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`,
-          {
-            method: "POST",
-            headers: shopifyAdminHeaders(credentials.accessToken),
-            body: JSON.stringify({
-              query: `#graphql
+      try {
+        for (let page = 0; page < 20; page++) {
+          const response = await fetchImpl(
+            `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`,
+            {
+              method: "POST",
+              headers: shopifyAdminHeaders(credentials.accessToken),
+              body: JSON.stringify({
+                query: `#graphql
               query RintSkuOrders($query: String!, $first: Int!, $after: String) {
                 orders(first: $first, after: $after, query: $query, sortKey: CREATED_AT) {
                   edges {
@@ -205,32 +206,50 @@ export function createShopifyRevenuePort(
                 }
               }
             `,
-              variables: { query: queryFilter, first: 50, after },
-            }),
-          },
-        );
+                variables: { query: queryFilter, first: 50, after },
+              }),
+            },
+          );
 
-        const payload = (await response.json()) as ShopifyOrdersResponse;
-        const graphqlError = shopifyGraphqlErrorMessage(payload);
-        if (!response.ok || graphqlError) {
-          throw new Error(graphqlError ?? `shopify_orders_query_failed:${response.status}`);
-        }
-
-        const orders = payload.data?.orders;
-        const edges = orders?.edges ?? [];
-        for (const edge of edges) {
-          const orderId = edge.node?.id;
-          const lineEdges = edge.node?.lineItems?.edges ?? [];
-          for (const lineEdge of lineEdges) {
-            const line = lineEdge.node;
-            if (!line || line.product?.id !== productGid) continue;
-            if (orderId) orderIds.add(orderId);
-            revenue += lineItemRevenue(line);
+          const payload = (await response.json()) as ShopifyOrdersResponse;
+          const graphqlError = shopifyGraphqlErrorMessage(payload);
+          if (!response.ok || graphqlError) {
+            throw new Error(graphqlError ?? `shopify_orders_query_failed:${response.status}`);
           }
-        }
 
-        if (!orders?.pageInfo?.hasNextPage || !orders.pageInfo.endCursor) break;
-        after = orders.pageInfo.endCursor;
+          const orders = payload.data?.orders;
+          const edges = orders?.edges ?? [];
+          for (const edge of edges) {
+            const orderId = edge.node?.id;
+            const lineEdges = edge.node?.lineItems?.edges ?? [];
+            for (const lineEdge of lineEdges) {
+              const line = lineEdge.node;
+              if (!line || line.product?.id !== productGid) continue;
+              if (orderId) orderIds.add(orderId);
+              revenue += lineItemRevenue(line);
+            }
+          }
+
+          if (!orders?.pageInfo?.hasNextPage || !orders.pageInfo.endCursor) break;
+          after = orders.pageInfo.endCursor;
+        }
+      } catch (error) {
+        // The Order object requires Shopify's separate Protected Customer Data
+        // approval (independent of the read_orders scope) — until that's granted
+        // for a shop, or on any other order-read failure, degrade to "no revenue
+        // signal" instead of failing the whole diagnosis. Same shape as the
+        // invalid-ref fallback above.
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn(
+          `[shopify-revenue-adapter] getSkuRevenue order read failed for ${shopDomain}, degrading to zero: ${message}`,
+        );
+        return {
+          externalRef: productGid,
+          revenue: 0,
+          orders: 0,
+          ticketMedio: 0,
+          meta: metaFor(shopDomain),
+        };
       }
 
       const orders = orderIds.size;

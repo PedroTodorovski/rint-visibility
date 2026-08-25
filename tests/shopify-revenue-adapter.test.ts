@@ -89,6 +89,35 @@ describe("shopify-revenue-adapter", () => {
     expect(result.meta.source).toBe("inflow.myshopify.com");
   });
 
+  it("degrades to a zero-revenue read instead of throwing when Order access is not approved", async () => {
+    const productGid = "gid://shopify/Product/777";
+    const fetchImpl = async () =>
+      new Response(
+        JSON.stringify({
+          errors:
+            "This app is not approved to access the Order object. See https://shopify.dev/docs/apps/launch/protected-customer-data for more details.",
+        }),
+        { status: 403, headers: { "Content-Type": "application/json" } },
+      );
+
+    const port = createShopifyRevenuePort(
+      {
+        shopDomain: "inflow.myshopify.com",
+        accessToken: "shpat_test",
+        adminApiVersion: "2026-04",
+      },
+      fetchImpl as typeof fetch,
+    );
+
+    const result = await port.getSkuRevenue("777", { start: "2026-01-01", end: "2026-01-31" });
+
+    expect(result.externalRef).toBe(productGid);
+    expect(result.revenue).toBe(0);
+    expect(result.orders).toBe(0);
+    expect(result.ticketMedio).toBe(0);
+    expect(result.meta.source).toBe("inflow.myshopify.com");
+  });
+
   it("extracts a product handle from a PDP URL", () => {
     expect(
       extractShopifyProductHandle(
