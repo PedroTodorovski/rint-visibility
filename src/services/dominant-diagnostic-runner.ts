@@ -854,8 +854,13 @@ export async function runDominantDiagnostic(
     const persistEnvelope = gold || storefrontClosed;
 
     if (persistEnvelope) {
+      // Primary SKU first: computeTriage's media-waste check reads skus[0]'s price
+      // as the "card price" — it must be the same SKU buildDiagnosticOutput uses
+      // below (primary.row), or the triage decision and the track_midia trace can
+      // disagree about whose price justified the call.
+      const triageSkus = [primary, ...skuRows.filter((sku) => sku.row.id !== primary.row.id)];
       const triage = computeTriage({
-        skus: skuRows.map((sku) => ({ id: sku.row.id, shopify: sku.row.shopify_data })),
+        skus: triageSkus.map((sku) => ({ id: sku.row.id, shopify: sku.row.shopify_data })),
         queries: queryRows,
         mediaSignals: {
           meta: metaRead.data,
@@ -874,6 +879,7 @@ export async function runDominantDiagnostic(
           ...triage.checks,
           dominant_sku_selection: dominantSkuSelection,
           config: planSnapshot(runConfig, payload.integrationConfig),
+          decision_trace: triage.trace,
         },
       });
 

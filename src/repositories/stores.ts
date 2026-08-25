@@ -9,6 +9,26 @@ type VisibilityDb = SupabaseClient<any, "public", "rint">;
 export class StoresRepository {
   constructor(private readonly db: VisibilityDb) {}
 
+  /** Cross-tenant — admin X-ray only. Never expose to a workspace-scoped route. */
+  async findById(storeId: string): Promise<StoreRow | null> {
+    const { data, error } = await this.db
+      .from("stores")
+      .select("*")
+      .eq("id", storeId)
+      .maybeSingle();
+
+    if (error) throw mapPostgrestError(error, "Failed to load store");
+    return data as StoreRow | null;
+  }
+
+  /** Cross-tenant — admin X-ray only. Never expose to a workspace-scoped route. */
+  async listByIds(storeIds: string[]): Promise<StoreRow[]> {
+    if (storeIds.length === 0) return [];
+    const { data, error } = await this.db.from("stores").select("*").in("id", storeIds);
+    if (error) throw mapPostgrestError(error, "Failed to load stores");
+    return (data ?? []) as StoreRow[];
+  }
+
   async findByWorkspaceId(workspaceId: string): Promise<StoreRow | null> {
     const { data, error } = await this.db
       .from("stores")

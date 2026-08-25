@@ -6,6 +6,8 @@
  * into sentences — URLs and attrs on screen come from `content_brief`.
  */
 
+import { type DecisionStep, step } from "./decision-trace.js";
+
 export type CatalogFoundationGap = "attributes" | "description";
 
 const MIN_USEFUL_ATTRIBUTES = 3;
@@ -76,6 +78,7 @@ export type LlmContentBrief = {
   catalog_gaps: CatalogFoundationGap[];
   incoherent?: boolean;
   sourcesWithoutStore?: boolean;
+  trace: DecisionStep[];
 };
 
 const STOP = new Set([
@@ -325,6 +328,23 @@ export function formulateTrackLlmFirstAction(input: LlmContentBriefInput): LlmCo
   const why = grounding_note ? " A IA leu review e a loja de outra marca, não a sua ficha." : "";
   const existingUrl = input.existingContentUrl?.trim() || null;
   const productUrl = input.productUrl?.trim() || null;
+  const trace: DecisionStep[] = [
+    step(
+      "catalog_foundation",
+      "O cadastro deste produto tem descrição útil e pelo menos 3 atributos técnicos preenchidos?",
+      catalogFirst,
+      catalogFirst ? "Não — cadastro incompleto" : "Sim",
+      { catalog_gaps: catalogGaps, incoherent: Boolean(input.incoherent) },
+    ),
+    step(
+      "existing_own_content",
+      "A IA já leu (ou existe) uma página própria relevante sobre o tema?",
+      !catalogFirst && Boolean(existingUrl),
+      existingUrl ? "Sim" : "Não",
+      { existing_content_url: existingUrl },
+      catalogFirst ? "Não avaliado — o cadastro precisa ser completado primeiro." : undefined,
+    ),
+  ];
   if (catalogFirst) {
     const what = catalogGapPhrase(catalogGaps);
     const where = productUrl ? `: ${productUrl}` : "";
@@ -349,6 +369,7 @@ export function formulateTrackLlmFirstAction(input: LlmContentBriefInput): LlmCo
       incoherent: Boolean(input.incoherent),
       sourcesWithoutStore: Boolean(input.sourcesWithoutStore),
       first_action: `Complete no Shopify ${what} de ${input.skuName}${where} — o cadastro é a base; sem isso um guia novo não tem o que dizer.${later}${skipLine}${why}`,
+      trace,
     };
   }
   const action = existingUrl
@@ -374,5 +395,6 @@ export function formulateTrackLlmFirstAction(input: LlmContentBriefInput): LlmCo
     incoherent: Boolean(input.incoherent),
     sourcesWithoutStore: Boolean(input.sourcesWithoutStore),
     first_action: action,
+    trace,
   };
 }
