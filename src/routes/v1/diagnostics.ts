@@ -203,7 +203,6 @@ export async function registerDiagnosticsRoutes(
       repos.jobs.countAll(),
       repos.jobs.listAll({ limit, offset: (requestedPage - 1) * limit }),
     ]);
-    const totalPages = Math.max(1, Math.ceil(total / limit));
     const page = requestedPage;
     const jobIds = jobs.map((job) => job.id);
     const storeIds = [...new Set(jobs.map((job) => job.store_id))];
