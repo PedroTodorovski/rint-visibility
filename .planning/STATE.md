@@ -14,9 +14,9 @@ progress:
 
 - **Phase:** 1 — MVP 2026 (lacuna de receita)
 - **Branch:** `feat/storefront-coherence-lost-occupant` (base `main`)
-- **Shipped this slice:** `incoerente` só com par da vitrine (`coherenceIncident`); ocupante das perdas via `lostOccupantSpeech` (um SKU → nome; dois → several).
-- **Already on main:** recados de Página (`judgePageWeek`, #42). Meta por último (#43). sete recados de Produto. sete recados de Conteúdo.
-- **Next:** deploy motor → re-rodar snowboard com senha em produção.
+- **Shipped this slice:** Vs = um checkout. `planCitedFaceFollowUp` silencioso. `canonicalProductUrl` recusa login ML, listagem e MLB inventado. `dropUrl` se o GET falha. `vsRivalPaintKeys` sem fallback de nome de blog. `ShopperOffer` / `OfferReader`.
+- **Already on main:** recados de Página (`judgePageWeek`, #42). Meta por último (#43). sete recados de Produto. sete recados de Conteúdo. `week_reason` no `content_brief`.
+- **Next:** Pedro recarrega Hair / Bari no browser. Merge #49 antes do admin #91.
 
 ## Repo boundaries
 
@@ -27,6 +27,10 @@ progress:
 
 ## Decisions Log
 
+- 2026-08-27: **Vs = PDP** — `planCitedFaceFollowUp` (1 tiro silencioso por face). `canonicalProductUrl` unwrap `/gz/account-verification?go=`, recusa `lista.mercadolivre` e MLB com dígitos demais. `hydrateCitedOfferImages` com `dropUrl` se o GET falha. `vsRivalPaintKeys` não cai em nome de blog. Sem segundo tiro “qual você recomenda comprar?”. SSOT: [MAPA-DO-DIAGNOSTICO.md](docs/MAPA-DO-DIAGNOSTICO.md) § Leitor da oferta, `rint-app/docs/CITED-OBJECT-COMPLETION.md`.
+- 2026-08-27: **Leitor da oferta** — `ShopperOffer` + `OfferReader`. `hydrateCitedOfferImages` antes de `planCitedFaceFollowUp`. SSOT: [MAPA-DO-DIAGNOSTICO.md](docs/MAPA-DO-DIAGNOSTICO.md) § Leitor da oferta, [GEMINI-PROBE-METHODOLOGY.md](docs/GEMINI-PROBE-METHODOLOGY.md).
+- 2026-08-27: **Fila da PDP medida** — GET pontual → `meta.pdpSurface` (flags, nunca HTML). `formulateTrackLlmFirstAction` não emite `nova_landing` com URL null. Incoerente → `pdp_medida` + `price_brand`. `work_items` / `already_ok` / `pdp_ready` no `content_brief`. SSOT: `rint-app/docs/PDP-SURFACE-INDEX.md`, `rint-app/docs/DIAGNOSIS-DOMINANT.md`.
+- 2026-08-27: **week_reason da ação = lime** — `trackLlmNextSteps` recebe o par da vitrine (`coherenceIncident`), não `coherenceLevel === "incoerente"`. Split de perguntas (gêmeo do admin) decide `category_partial` / `named_only`. Envelope JSON `content_brief.week_reason`. SSOT: `rint-app/docs/DIAGNOSIS-DOMINANT.md`.
 - 2026-08-26: **Incoerente só com o par da vitrine** — `computeTriage` grava `coherenceIncident` (said + catalog) e `lost_occupants` / `lost_occupant_speech`. `incoerente` exige o par; farmácia/ML não pinta; Complete Bari vs CompleteBari não é incidente de marca. Occupante das perdas: um SKU → nomeia; dois SKUs → several. Tela: `rint-app` ignora flag antiga. SSOT: [MAPA-DO-DIAGNOSTICO.md](docs/MAPA-DO-DIAGNOSTICO.md) § 6, [GEMINI-PROBE-METHODOLOGY.md](docs/GEMINI-PROBE-METHODOLOGY.md) § Identidade, `rint-app/docs/DIAGNOSIS-DOMINANT.md` § 3.1.
 - 2026-08-26: **Três atores no mapa do motor** — sua loja / produto noutro site / ocupante. Preço 3.1.1 só na vitrine; `isClientProductElsewhereObject` não roteia a semana. **Os dois na mesma pergunta:** o helper ignora `grounding_confirmed_client: false` no revendedor (ADR-003 só protege 3.1.1); a Prova ainda nomeia a farmácia. SSOT didático: [MAPA-DO-DIAGNOSTICO.md](docs/MAPA-DO-DIAGNOSTICO.md) § 4.1. Probe: [GEMINI-PROBE-METHODOLOGY.md](docs/GEMINI-PROBE-METHODOLOGY.md) § Identidade. ADR-003. Tela: `rint-app/docs/DIAGNOSIS-DOMINANT.md`.
 - 2026-08-26: **Preço 3.1.1 só na vitrine do cliente** — fallback de identidade sem primeira palavra do título Shopify (`citedNameAlignsWithClient`); `computeTriage` não confronta R$ de marketplace/farmácia com o PDP. Fecha o falso “Falou R$ 71” da CompleteBari. ADR-003.
@@ -38,6 +42,7 @@ progress:
 - 2026-08-20: **0/N e parcial → Conteúdo no job** — `computeTriage` alinha com a tela. `incoherent` e `sourcesWithoutStore` entram no `content_brief`. Cadastro primeiro continua. Contrato: `rint-app/docs/DIAGNOSIS-DOMINANT.md`, `DIAGNOSIS-PREVIEW-SCENARIOS.md`.
 - 2026-08-19: **Prova vazia falha fechado** — execução de provedor habilitado tem texto de comprador visível ou é falha. Quirk Gemini (`thinkingBudget: 0`, teto 8192, parts visíveis) fica no adapter. Foto do dia não reusa oco. ChatGPT/Perplexity no mesmo job depois; sem HTTP neste slice.
 - 2026-08-18: **Foto do dia** — par produto+pergunta carimbado no fuso `America/Sao_Paulo`. Mesmo teste no mesmo dia reusa o diagnóstico; pergunta diferente copia o par existente e só o novo vai à web. Sem warehouse. Contrato: `rint-app/.planning/MVP-DEFINITION.md`.
+- 2026-08-27: **Sessões IA por canal** — `sessoesAiBySource` no snapshot (`sessionSource` + sessions). Sem warehouse diário. Tela: `rint-app` mosaico Gemini / ChatGPT / Perplexity. Contrato: `rint-app/docs/architecture/DATA-MINIMALISM-CONTRACT.md`.
 - 2026-08-18: GA4 AI-referral persiste `sessoesAi` e top-K `sessoesAiLandings` (path + sessions) no snapshot. Não é warehouse de pageview. Não escolhe `first_action` / `target_url`. Contrato: `rint-app/docs/architecture/DATA-MINIMALISM-CONTRACT.md`.
 - 2026-08-18: Search Console preparado como port pontual `getOwnedSurfaces` (preview simulado no admin; sem OAuth real ainda). O snapshot recebe `ownedSurfaces` e o `content_brief` pode marcar `target_url_source: search_console`.
 - 2026-08-18: Superfícies próprias da marca classificadas em `owned_storefront`, `owned_content_directory`, `owned_content_subdomain`, `external_source`. Search Console `domain` cobre subdomínios; `url_prefix` não. `track_llm` cria URL editorial nova ou melhora URL própria existente. Contrato: `rint-app/docs/DIAGNOSIS-DOMINANT.md`.
@@ -45,7 +50,7 @@ progress:
 - 2026-08-17: Follow-up do site do cliente: `hostIsClientStorefront` (exact host). Log `client_site_follow_up`. SSOT admin: `rint-app/docs/PROOF-CLIENT-SITE.md`.
 - 2026-08-17: `GET /v1/jobs` devolve resumo compacto (`sku_names`, `cliente_foi_citado`, `providers` no snapshot) para a lista em rint-app. Sem secrets. Jobs antigos inferem Shopify do snapshot quando dá.
 - 2026-08-17: Queries Gemini no job dominante correm em paralelo limitado (`DIAGNOSTIC_QUERY_CONCURRENCY`, default 3). Lock BullMQ 30 min. Produção exige Redis + worker.
-- 2026-08-16: Completar `objetos_citados` com 1 follow-up do motor está parked — `rint-app/docs/CITED-OBJECT-COMPLETION.md`. Array incompleto permanece válido.
+- 2026-08-16: Completar `objetos_citados` com 1 follow-up do motor passou a MVP (silencioso, PDP da vs) — `rint-app/docs/CITED-OBJECT-COMPLETION.md`. Array incompleto permanece válido. Continuar conversa na Prova continua parked.
 - 2026-08-16: `objetos_citados` no `gemini_structured` (jsonb) — perfil do objeto citado no segundo passe. Sem migration. Sem sync de catálogo. Triage LLM só compara preço/atributos quando o objeto é o SKU do cliente.
 - 2026-06-27: Prompts per-SKU (`product_id`) — wizard diagnóstico MVP
 - 2026-06-20: MVP 2026 engine slices implemented — Gemini-only probe, ports + cache, lacuna C1/C2 snapshots, dual-track outputs

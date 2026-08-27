@@ -5,7 +5,8 @@
 
 const MAX_CHARS = 72;
 const MAX_WORDS = 6;
-const MACHINE_KEY = /html|image|img|gid|file|video|media|json|svg|icon|metaobject|rich[_-]?text/i;
+const MACHINE_KEY =
+  /html|image|img|gid|file|video|media|json|svg|icon|metaobject|rich[_-]?text|related products|age group|rating count/i;
 
 function fold(value: string): string {
   return value
@@ -52,6 +53,25 @@ function humanKey(key: string): string {
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
+function isListingMetafieldKey(key: string): boolean {
+  const folded = fold(key);
+  if (/\bsku\b/.test(folded)) return true;
+  if (/quantidade/.test(folded)) return true;
+  if (/unitario/.test(folded)) return true;
+  return false;
+}
+
+function isListingNoise(value: string): boolean {
+  const folded = fold(value);
+  if (folded.startsWith("/")) return true;
+  if (/^(new|novo|nova)$/.test(folded)) return true;
+  if (/\bsku\b/.test(folded) && /:/.test(value)) return true;
+  if (/related products|age group|rating count/.test(folded)) return true;
+  if (/quantidade/.test(folded) && /unidade/.test(folded)) return true;
+  if (/unitario/.test(folded)) return true;
+  return false;
+}
+
 function acceptChip(value: string): string[] {
   const trimmed = value.replace(/\s+/g, " ").trim();
   if (!trimmed) return [];
@@ -59,7 +79,9 @@ function acceptChip(value: string): string[] {
   if (trimmed.includes("gid://shopify")) return [];
   if (isHtml(trimmed)) return [];
   if (trimmed.startsWith("{") || trimmed.startsWith("[")) return [];
+  if (/[[\]{}]/.test(trimmed)) return [];
   if (trimmed.length > MAX_CHARS || wordCount(trimmed) > MAX_WORDS) return [];
+  if (isListingNoise(trimmed)) return [];
   return [trimmed];
 }
 
@@ -129,7 +151,7 @@ export function expandAttributeSource(raw: string): string[] {
     const key = trimmed.slice(0, sep).trim();
     const value = trimmed.slice(sep + 2).trim();
     if (lookslikeFieldKey(key)) {
-      if (MACHINE_KEY.test(key)) return [];
+      if (MACHINE_KEY.test(key) || isListingMetafieldKey(key)) return [];
       if (value.startsWith("{") || value.startsWith("[")) {
         try {
           return expandJson(JSON.parse(value) as unknown, key);

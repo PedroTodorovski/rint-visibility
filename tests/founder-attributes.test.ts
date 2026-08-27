@@ -11,7 +11,7 @@ describe("founderFacingAttributes", () => {
         "Quantidade: 1 unidade",
         "Multi Unitário",
       ]),
-    ).toEqual(["Snowboard", "Size: 158", "Quantidade: 1 unidade", "Multi Unitário"]);
+    ).toEqual(["Snowboard", "Size: 158"]);
   });
 
   it("drops Shopify GIDs, rich-text JSON, and html metafields", () => {
@@ -59,5 +59,27 @@ describe("founderFacingAttributes", () => {
         "pode ser necessário complementar a suplementação de ferro",
       ]),
     ).toEqual(["ampla disponibilidade"]);
+  });
+
+  it("never leaks a JSON list wrapper as one chip", () => {
+    expect(
+      founderFacingAttributes([
+        'composition_text_list: ["Mais disposição e energia para o dia a dia", "Cabelos viçosos", "Um combo completo"]',
+      ]),
+    ).toEqual(["Cabelos viçosos", "Um combo completo"]);
+  });
+
+  it("drops listing metafields, SKU codes, and category paths", () => {
+    expect(
+      founderFacingAttributes([
+        "Related products display: only manual",
+        "Age group: adult",
+        "SKU: 00166370",
+        "/Vida Saudável/",
+        "new",
+        "ferro",
+        "b12",
+      ]),
+    ).toEqual(["ferro", "b12"]);
   });
 });

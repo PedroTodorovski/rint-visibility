@@ -317,12 +317,7 @@ describe("shopify-revenue-adapter", () => {
       url: "https://completebari.com.br/products/multivitaminico-complete-bari-multi",
     });
 
-    expect(snapshot?.attributes).toEqual([
-      "Multi Unitário",
-      "Vitamina D3",
-      "Metilfolato",
-      "Quantidade: 1 unidade",
-    ]);
+    expect(snapshot?.attributes).toEqual(["Vitamina D3", "Metilfolato"]);
     expect(snapshot?.attributes.join(" ")).not.toMatch(/gid:\/\/shopify|specification_html/);
   });
 

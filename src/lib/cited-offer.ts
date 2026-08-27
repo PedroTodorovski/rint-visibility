@@ -1,5 +1,7 @@
 /** Competitor SKU identity + crown view. Persist every cited object; crown does not delete. */
 
+import { canonicalProductUrl, isLikelyPdpUrl } from "./product-url-gate.js";
+
 export type OfferConfidence = "clear" | "split" | "store_only" | "empty";
 
 export type CitedObjectLike = {
@@ -112,6 +114,15 @@ export function hostFromUrl(url: string | null | undefined): string | null {
   }
 }
 
+/** Cited store vs a checkout host — Pague Menos ↔ paguemenos.com.br. */
+export function checkoutHostFitsSeller(url: string, loja: string | null | undefined): boolean {
+  const seller = compactIdentity(loja);
+  if (seller.length < 5) return true;
+  const host = compactIdentity(hostFromUrl(url));
+  if (!host) return false;
+  return host.includes(seller) || seller.includes(host.replace(/combr$|com$/, ""));
+}
+
 /** Category words that must not claim the client's Shopify title (ADR-003 residual). */
 const GENERIC_CITED_IDENTITY = new Set([
   "multivitaminico",
@@ -188,14 +199,11 @@ export function isClientProductElsewhereObject(
   return Boolean(loja);
 }
 
+/** Same shape as the wizard PDP gate — pharmacy slug, VTEX `/p`, Amazon `/dp`. Not blog, login, or Google. */
 export function isLikelyProductUrl(url: string | null | undefined): boolean {
-  if (!url) return false;
-  try {
-    const path = new URL(url).pathname.toLowerCase();
-    return /\/(products?|produto|p)\b/.test(path);
-  } catch {
-    return false;
-  }
+  const href = url?.trim() ?? "";
+  if (!href) return false;
+  return isLikelyPdpUrl(href.includes("://") ? href : `https://${href}`);
 }
 
 export function productIdentityKey(object: CitedObjectLike): string | null {
@@ -287,6 +295,91 @@ export function occupantsFromLostQueries(
   return offers;
 }
 
+const VS_RIVAL_CAP = 2;
+
+function queryNamesClient(text: string, client: ClientOfferIdentity): boolean {
+  const hayCompact = compactIdentity(text);
+  const hayFold = ` ${foldIdentity(text)} `;
+  const brandCompact = compactIdentity(client.brand);
+  const nameCompact = compactIdentity(client.name);
+  if (brandCompact.length >= 8 && hayCompact.includes(brandCompact)) return true;
+  if (nameCompact.length >= 8 && hayCompact.includes(nameCompact)) return true;
+  const brandFold = foldIdentity(client.brand);
+  if (brandFold.length >= 4 && hayFold.includes(` ${brandFold} `)) return true;
+  const nameFold = foldIdentity(client.name);
+  if (nameFold.length >= 4 && hayFold.includes(` ${nameFold} `)) return true;
+  return false;
+}
+
+function rivalObjectKey(object: CitedObjectLike, client: ClientOfferIdentity): string | null {
+  if (isClientCitedObject(object, client, object.grounding_confirmed_client ?? false)) {
+    return null;
+  }
+  if (isClientProductElsewhereObject(object, client)) return null;
+  return productIdentityKey(object);
+}
+
+/**
+ * Faces on the product vs. Clear crown → one. Else prefer SKUs that took
+ * category (no-name) losses, cap 2. Never empty the vs only because two were cited.
+ * Twin: rint-app.
+ */
+export function vsRivalProductKeys(input: {
+  client: ClientOfferIdentity;
+  queries: Array<{
+    text?: string | null;
+    cited?: boolean;
+    objects?: CitedObjectLike[] | null;
+  }>;
+  candidates: OfferCandidate[];
+  clearProductKey?: string | null;
+}): string[] {
+  const clear = input.clearProductKey?.trim() || "";
+  if (clear) return [clear];
+  const categoryCounts = new Map<string, number>();
+  const seenOrder: string[] = [];
+  for (const query of input.queries) {
+    if (query.cited === true) continue;
+    const text = query.text?.trim() ?? "";
+    if (text && queryNamesClient(text, input.client)) continue;
+    const seen = new Set<string>();
+    for (const object of query.objects ?? []) {
+      const key = rivalObjectKey(object, input.client);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      if (!categoryCounts.has(key)) seenOrder.push(key);
+      categoryCounts.set(key, (categoryCounts.get(key) ?? 0) + 1);
+    }
+  }
+  const candidateCount = new Map(input.candidates.map((row) => [row.productKey, row.count]));
+  const rankedCategory = [...categoryCounts.entries()].sort((a, b) => {
+    const byCount = b[1] - a[1];
+    if (byCount !== 0) return byCount;
+    const byCandidate = (candidateCount.get(b[0]) ?? 0) - (candidateCount.get(a[0]) ?? 0);
+    if (byCandidate !== 0) return byCandidate;
+    return seenOrder.indexOf(a[0]) - seenOrder.indexOf(b[0]);
+  });
+  if (rankedCategory.length > 0) {
+    return rankedCategory.slice(0, VS_RIVAL_CAP).map(([key]) => key);
+  }
+  return input.candidates
+    .slice(0, VS_RIVAL_CAP)
+    .map((row) => row.productKey)
+    .filter(Boolean);
+}
+
+/** A cited SKU the shopper can open — a PDP URL, not a blog, busca, login wall, or Google redirect. */
+export function citedObjectHasCheckout(object: CitedObjectLike): boolean {
+  return Boolean(canonicalProductUrl(object.url));
+}
+
+/** Keep vs faces that have a checkout. Empty means the vs stays empty — never fall back to a blog name. */
+export function vsRivalPaintKeys(keys: string[], objects: CitedObjectLike[]): string[] {
+  return keys.filter((key) =>
+    objects.some((object) => productIdentityKey(object) === key && citedObjectHasCheckout(object)),
+  );
+}
+
 function modeLabel(counts: Map<string, { label: string; n: number }>): string | null {
   const ranked = [...counts.values()].sort((a, b) => b.n - a.n || a.label.localeCompare(b.label));
   const top = ranked[0];
@@ -304,7 +397,7 @@ function bump(map: Map<string, { label: string; n: number }>, label: string | nu
   map.set(key, { label: prev?.label ?? trimmed, n: (prev?.n ?? 0) + 1 });
 }
 
-function factsFromMentions(
+export function offerFactsFromMentions(
   mentions: CitedObjectLike[],
 ): Pick<
   CrownedOffer,
@@ -452,7 +545,7 @@ export function crownCompetitorSku(input: {
     marca: row.marca,
     produto: row.produto,
     count: row.count,
-    seller: factsFromMentions(row.mentions).seller,
+    seller: offerFactsFromMentions(row.mentions).seller,
   }));
 
   const stores = [...storeHints.values()]
@@ -465,7 +558,7 @@ export function crownCompetitorSku(input: {
   const tied = Boolean(top && second && second.count === top.count);
 
   if (majority && !tied && top) {
-    const facts = factsFromMentions(top.mentions);
+    const facts = offerFactsFromMentions(top.mentions);
     return {
       confidence: "clear",
       productKey: top.productKey,
@@ -510,14 +603,28 @@ export function crownCompetitorSku(input: {
 
 export function missingOfferCriticals(
   offer: CrownedOffer,
-): Array<"produto" | "loja" | "preco" | "prazo" | "avaliacao"> {
-  const missing: Array<"produto" | "loja" | "preco" | "prazo" | "avaliacao"> = [];
+): Array<"produto" | "loja" | "preco" | "prazo" | "avaliacao" | "checkout"> {
+  const missing: Array<"produto" | "loja" | "preco" | "prazo" | "avaliacao" | "checkout"> = [];
   if (!offer.produto?.trim()) missing.push("produto");
   if (!offer.seller?.trim()) missing.push("loja");
+  if (!isLikelyProductUrl(offer.url)) missing.push("checkout");
   if (offer.preco == null) missing.push("preco");
   if (!offer.prazo_entrega?.trim()) missing.push("prazo");
   if (!offer.avaliacao?.trim()) missing.push("avaliacao");
   return missing;
+}
+
+/** One vs face still needs a checkout URL — blogs with a price are not a PDP. */
+export function planCitedFaceFollowUp(object: CitedObjectLike): CitedOfferFollowUpPlan | null {
+  const produto = object.produto?.trim();
+  if (!produto) return null;
+  if (citedObjectHasCheckout(object)) return null;
+  const named = formatCitedOfferLabel(object.marca, produto);
+  const at = object.loja?.trim() ? ` na ${object.loja.trim()}` : "";
+  return {
+    reason: "missing_facts",
+    query: `Quero comprar ${named}${at} agora. Não me indique artigo, ranking, YouTube, blog nem página de busca. Qual é o link direto da página desse produto numa loja (farmácia, marketplace ou site da marca)? Diga a loja, o preço nessa página, a avaliação dos clientes e o prazo de entrega.`,
+  };
 }
 
 export function planCitedOfferFollowUp(offer: CrownedOffer): CitedOfferFollowUpPlan | null {
@@ -535,6 +642,9 @@ export function planCitedOfferFollowUp(offer: CrownedOffer): CitedOfferFollowUpP
   const named = [offer.marca, offer.produto].filter(Boolean).join(" ").trim() || "esse produto";
   const at = offer.seller ? ` na ${offer.seller}` : "";
   const asks: string[] = [];
+  if (missing.includes("checkout")) {
+    asks.push("qual é o link direto da página do produto na loja (não artigo, ranking nem busca)");
+  }
   if (missing.includes("produto")) asks.push("qual é o produto exato");
   if (missing.includes("loja")) asks.push("onde vende");
   if (missing.includes("preco")) asks.push("quanto custa");
@@ -543,7 +653,7 @@ export function planCitedOfferFollowUp(offer: CrownedOffer): CitedOfferFollowUpP
   return {
     reason: missing.includes("produto")
       ? "missing_product"
-      : missing.includes("loja")
+      : missing.includes("loja") || missing.includes("checkout")
         ? "missing_seller"
         : "missing_facts",
     query: `Sobre ${named}${at}: ${asks.join(", ")}?`,

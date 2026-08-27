@@ -111,7 +111,12 @@ describe("dominant diagnostics API", () => {
     expect(runner).toMatch(/readThroughCache\(\s*deps\.repos\.perRunReadCache,\s*probeRunId/);
     expect(runner).toContain("completeCitedOffers");
     expect(runner).toContain("planCitedOfferFollowUp");
+    expect(runner).toContain("planCitedFaceFollowUp");
     expect(runner).toContain("follow_up: true");
+    expect(runner).toContain("hydrateCitedOfferImages");
+    expect(runner).toContain("vsRivalProductKeys");
+    expect(runner).toContain("groundingUrlsForCitedObject");
+    expect(runner).toContain("Promise.all");
   });
   it("enqueues, completes, and returns dominant diagnostic payload", async () => {
     vi.stubGlobal(

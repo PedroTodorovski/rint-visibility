@@ -1,6 +1,8 @@
 import { type ClassifiedBrandSurface, classifyBrandSurface } from "../lib/citation-gold.js";
 import { crownCompetitorSku, hostFromUrl, planCitedOfferFollowUp } from "../lib/cited-offer.js";
 import { founderFacingAttributes } from "../lib/founder-attributes.js";
+import { shopperQuestionKind, splitQueryCitations } from "../lib/shopper-question-kind.js";
+import { ga4SessionEvidence } from "../ports/ga4-revenue-adapter.js";
 import type {
   Ga4AiReferralRevenue,
   GoogleAdsSkuWaste,
@@ -32,6 +34,7 @@ import { judgeProductWeek } from "./produto-week-judge.js";
 import { aggregateCitationCounts, computeRevenueGap } from "./revenue-gap-engine.js";
 import {
   type SearchConsoleUrlMatch,
+  selectSearchConsoleBlogIndex,
   selectSearchConsoleUrl,
 } from "./search-console-url-matcher.js";
 
@@ -42,6 +45,8 @@ export type DiagnosticOutputInput = {
   queries: DiagnosticQueryRow[];
   track: DiagnosticTrack;
   coherenceLevel?: "coerente" | "parcialmente_coerente" | "incoerente";
+  /** Named storefront pair — never a stale coherence_level flag alone. */
+  storefrontIncoherent?: boolean;
   finance: {
     ga4: Ga4AiReferralRevenue;
     shopify: ShopifySkuRevenue;
@@ -256,7 +261,7 @@ function trackLlmNextSteps(
   queries: DiagnosticQueryRow[],
   absentAttributes: string[],
   seoGaps: DiagnosticOutputInput["finance"]["seoGaps"],
-  options: { incoherent?: boolean } = {},
+  options: { storefrontIncoherent?: boolean } = {},
 ) {
   const mentioned = mentionedAttrsFromQueries(queries);
   const catalog = catalogAttributes(snapshot);
@@ -276,7 +281,30 @@ function trackLlmNextSteps(
   const readStorefront = surfaces.some((surface) => surface.kind === "owned_storefront");
   const readExternal = surfaces.some((surface) => surface.kind === "external_source");
   const cited = queries.some((query) => query.cliente_foi_citado);
+  const citationClient = queries.filter((query) => query.cliente_foi_citado).length;
+  const citationTotal = queries.length;
+  const querySplit = splitQueryCitations(
+    queries.map((query) => ({ text: query.query_text, cited: query.cliente_foi_citado })),
+    { brand: snapshot.brand, productName: snapshot.name },
+  );
   const sourcesWithoutStore = !cited && !readStorefront && answersNameClient(queries, snapshot);
+  const lostQueryTexts = queries
+    .filter(
+      (query) =>
+        !query.cliente_foi_citado &&
+        shopperQuestionKind(query.query_text, {
+          brand: snapshot.brand,
+          productName: snapshot.name,
+        }) === "category",
+    )
+    .map((query) => query.query_text);
+  const blogIndex =
+    ownedContent == null
+      ? selectSearchConsoleBlogIndex({
+          candidates: snapshot.meta.ownedSurfaces?.ownedContentCandidates ?? [],
+          surfaceConfig: surfaceConfigFromSnapshot(snapshot),
+        })
+      : null;
   const brief = formulateTrackLlmFirstAction({
     skuName: snapshot.name,
     brand: snapshot.brand,
@@ -304,9 +332,37 @@ function trackLlmNextSteps(
       descriptionChars: snapshot.descriptionChars ?? snapshot.meta.admin?.descriptionChars,
     }),
     productUrl: snapshot.url,
-    incoherent: options.incoherent === true,
+    incoherent: options.storefrontIncoherent === true,
     sourcesWithoutStore,
+    citationClient,
+    citationTotal,
+    querySplit,
+    pdpSurface: snapshot.meta.pdpSurface ?? null,
+    storefrontAccess: snapshot.meta.storefrontAccess ?? null,
+    lostQueryTexts,
+    blogIndexUrl: blogIndex?.surface.href ?? null,
+    blogIndexSurface:
+      blogIndex?.surface.kind === "owned_content_directory" ||
+      blogIndex?.surface.kind === "owned_content_subdomain"
+        ? blogIndex.surface.kind
+        : null,
   });
+  const searchConsoleMatch =
+    usesSearchConsoleTarget && searchConsoleCandidate
+      ? {
+          score: searchConsoleCandidate.score,
+          confidence: searchConsoleCandidate.confidence,
+          matched_queries: searchConsoleCandidate.matched_queries,
+          metrics: searchConsoleCandidate.metrics,
+        }
+      : brief.surface === "blog_indice_existente" && blogIndex
+        ? {
+            score: blogIndex.score,
+            confidence: blogIndex.confidence,
+            matched_queries: blogIndex.matched_queries,
+            metrics: blogIndex.metrics,
+          }
+        : null;
   return {
     owner: "parceiro de conteúdo ou autoridade",
     first_action: brief.first_action,
@@ -328,15 +384,11 @@ function trackLlmNextSteps(
       catalog_gaps: brief.catalog_gaps,
       incoherent: brief.incoherent === true,
       sourcesWithoutStore: brief.sourcesWithoutStore === true,
-      search_console_match:
-        usesSearchConsoleTarget && searchConsoleCandidate
-          ? {
-              score: searchConsoleCandidate.score,
-              confidence: searchConsoleCandidate.confidence,
-              matched_queries: searchConsoleCandidate.matched_queries,
-              metrics: searchConsoleCandidate.metrics,
-            }
-          : null,
+      week_reason: brief.week_reason,
+      work_items: brief.work_items ?? [],
+      already_ok: brief.already_ok ?? [],
+      pdp_ready: brief.pdp_ready === true,
+      search_console_match: searchConsoleMatch,
     },
     seo_api_phase_2: seoGaps.length > 0 ? seoGaps : unavailable("seo_api"),
     decision_trace: brief.trace,
@@ -591,9 +643,7 @@ export function buildCitationFinancialRisks(
   const gap = computeRevenueGap({
     receitaAiMedida: input.finance.ga4.totalRevenue,
     sessoesAi: input.finance.ga4.totalSessions,
-    ...(input.finance.ga4.landings?.length
-      ? { sessoesAiLandings: input.finance.ga4.landings.slice(0, 8) }
-      : {}),
+    ...ga4SessionEvidence(input.finance.ga4),
     citationClient: citationCounts.citationClient,
     citationCompetitor: citationCounts.citationCompetitor,
     citationTotal: citationCounts.citationTotal,
@@ -680,7 +730,7 @@ export function buildDiagnosticOutput(input: DiagnosticOutputInput): DiagnosticO
             input.queries,
             absentAttributes,
             input.finance.seoGaps,
-            { incoherent: input.coherenceLevel === "incoerente" },
+            { storefrontIncoherent: input.storefrontIncoherent === true },
           ),
           prazo:
             "variável — depende de frequência de indexação do Gemini e volume de conteúdo publicado",

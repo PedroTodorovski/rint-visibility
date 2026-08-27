@@ -1,5 +1,6 @@
 import type { LlmClient } from "../lib/llm/types.js";
-import { catalogGapPhrase } from "./llm-out-first-action.js";
+import { catalogGapPhrase, type LlmContentBrief } from "./llm-out-first-action.js";
+import { isLlmWeekReason, type LlmWeekReason, resolveLlmWeekReason } from "./llm-week-reason.js";
 
 /** Founder prose for speak / email / fallback. The admin paints URL + attrs from `content_brief`. */
 
@@ -17,6 +18,8 @@ export type TrackLlmContentBriefForCopy = {
   existing_content_surface?: "owned_content_directory" | "owned_content_subdomain" | null;
   incoherent?: boolean;
   sourcesWithoutStore?: boolean;
+  week_reason?: LlmWeekReason | null;
+  surface?: LlmContentBrief["surface"] | null;
 };
 
 export type FounderActionCopyResult = {
@@ -39,98 +42,119 @@ function sentenceJoin(parts: string[]): string {
   return parts.filter((part) => part.trim()).join(" ");
 }
 
-function attrsLine(attrs: string[] | undefined): string {
-  const clean = (attrs ?? [])
-    .map((attr) => attr.trim())
-    .filter(Boolean)
-    .slice(0, 2);
-  if (clean.length === 0) return "Use os fatos reais que já estão no cadastro da loja.";
-  if (clean.length === 1) return `Use este fato real que já está no cadastro: ${clean[0]}.`;
-  return `Use estes fatos reais que já estão no cadastro: ${clean.join(" e ")}.`;
+function pageVerb(brief: TrackLlmContentBriefForCopy, create: string, improve: string): string {
+  return brief.target_url?.trim() ? improve : create;
 }
 
-function linkLine(brief: TrackLlmContentBriefForCopy): string {
-  const skuName = brief.sku_name?.trim() || "este produto";
-  return brief.target_url?.trim()
-    ? `Reforce nela o caminho para ${skuName}.`
-    : `Inclua um caminho claro para ${skuName}.`;
+function pdpExistsLede(): string {
+  return "A sua página do produto já existe. Falta a IA enxergar o que ela diz para quem ainda não sabe o seu nome. Não crie outra página.";
 }
 
-function skipLine(brief: TrackLlmContentBriefForCopy): string {
-  const skip = (brief.skip_attrs ?? []).find((attr) => attr.trim());
-  return skip ? `Não afirme ${skip}, porque isso não está no cadastro do produto.` : "";
+function catalogLaterSentence(brief: TrackLlmContentBriefForCopy, theme: string): string {
+  if (brief.existing_content_surface) {
+    return "Com o cadastro em ordem, melhore o guia no domínio da loja.";
+  }
+  if (brief.target_url?.trim()) {
+    return "Com o cadastro em ordem, a IA passa a enxergar a ficha que já existe.";
+  }
+  return `Com o cadastro em ordem, crie uma página no seu domínio, fora da ficha do produto, para explicar ${theme}.`;
 }
 
-function whyLine(brief: TrackLlmContentBriefForCopy): string {
-  return brief.grounding_note === "review_not_listing"
-    ? "Hoje a IA está buscando essa resposta em review, blog ou loja de outra marca."
-    : "";
+export function weekReasonFromBrief(brief: TrackLlmContentBriefForCopy): LlmWeekReason {
+  if (isLlmWeekReason(brief.week_reason)) return brief.week_reason;
+  return resolveLlmWeekReason({
+    catalogFirst: Boolean(brief.catalog_first),
+    storefrontIncoherent: Boolean(brief.incoherent),
+    sourcesWithoutStore: Boolean(brief.sourcesWithoutStore),
+    citationClient: 0,
+    citationTotal: 0,
+    split: null,
+  });
 }
 
 export function buildDeterministicFounderActionCopy(brief: TrackLlmContentBriefForCopy): string {
-  const skuName = brief.sku_name?.trim() || "este produto";
-  const theme = brief.theme?.trim() || skuName;
-  const targetUrl = brief.target_url?.trim() || null;
-  if (brief.catalog_first) {
-    const what = catalogGapPhrase(brief.catalog_gaps ?? []);
-    const where = targetUrl ? `: ${targetUrl}` : "";
-    const later = brief.existing_content_surface
-      ? "Com o cadastro em ordem, melhore o guia no domínio da loja."
-      : `Com o cadastro em ordem, crie uma página no seu domínio, fora da ficha do produto, para explicar ${theme}.`;
-    return sentenceJoin([
-      `Complete no Shopify ${what} de ${skuName}${where}.`,
-      "O cadastro é a base: sem isso, um guia novo não tem o que dizer.",
-      later,
-      skipLine(brief),
-      whyLine(brief),
-    ]);
+  const theme = brief.theme?.trim() || "este produto";
+  const reason = weekReasonFromBrief(brief);
+  switch (reason) {
+    case "catalog_first": {
+      const what = catalogGapPhrase(brief.catalog_gaps ?? []);
+      return sentenceJoin([
+        `Complete no Shopify ${what} deste produto.`,
+        "O cadastro é a base: sem isso, um guia novo não tem o que dizer.",
+        catalogLaterSentence(brief, theme),
+      ]);
+    }
+    case "incoherent":
+      return pageVerb(
+        brief,
+        "A IA já fala de você, mas o preço ou a marca não batem com a loja. Crie uma página no seu site que deixe preço e marca iguais à loja.",
+        "A IA já fala de você, mas o preço ou a marca não batem com a loja. Deixe o cadastro claro nesta página do produto.",
+      );
+    case "sources_without_store":
+      return pageVerb(
+        brief,
+        "A IA já fala o nome, mas foi ler em outros sites. Publique uma página sua com os fatos da loja.",
+        "A IA já fala o nome, mas foi ler em outros sites. Escreva nesta página do produto os fatos da loja.",
+      );
   }
-  if (brief.incoherent) {
-    const base = targetUrl
-      ? `A IA já fala de ${skuName}, mas o preço ou a marca não batem com a loja. Melhore esta página do seu site: ${targetUrl}. Deixe nela o preço real e os fatos do cadastro.`
-      : `A IA já fala de ${skuName}, mas o preço ou a marca não batem com a loja. Crie uma página no seu domínio, fora da ficha do produto, que deixe o preço real e os fatos do cadastro claros.`;
-    return sentenceJoin([base, attrsLine(brief.use_attrs), linkLine(brief), skipLine(brief)]);
+  if (brief.surface === "blog_indice_existente") {
+    return "Crie um conteúdo neste blog para quem busca sem o nome da loja. Não invente outro endereço.";
   }
-  if (brief.sourcesWithoutStore) {
-    const base = targetUrl
-      ? `A IA já fala do nome de ${skuName}, mas foi buscar a resposta em outros sites. Melhore esta página do seu site: ${targetUrl}. Deixe nela os fatos do cadastro para ela ler a sua loja.`
-      : `A IA já fala do nome de ${skuName}, mas foi buscar a resposta em outros sites. Crie uma página no seu domínio, fora da ficha do produto, com os fatos do cadastro para ela ler a sua loja.`;
-    return sentenceJoin([base, attrsLine(brief.use_attrs), linkLine(brief), skipLine(brief)]);
+  if (brief.surface === "pdp_medida") {
+    return brief.target_url?.trim()
+      ? pdpExistsLede()
+      : "Falta a IA enxergar uma página sua para quem ainda não sabe o seu nome.";
   }
-  const base = targetUrl
-    ? `Melhore esta página do seu site: ${targetUrl}. Ela já pode ser a resposta que a IA deveria encontrar sobre ${theme}.`
-    : `Crie uma página no seu domínio, fora da ficha do produto, para explicar ${theme} de um jeito claro para quem está pesquisando na IA.`;
-  return sentenceJoin([
-    base,
-    attrsLine(brief.use_attrs),
-    linkLine(brief),
-    skipLine(brief),
-    whyLine(brief),
-  ]);
+  switch (reason) {
+    case "named_only":
+    case "category_partial":
+      return pageVerb(
+        brief,
+        `Falta a IA enxergar uma página sua para quem busca ${theme} sem saber o nome da loja.`,
+        `Nesta página do produto, escreva para quem busca ${theme} sem saber o nome da loja.`,
+      );
+    case "out":
+    case "partial":
+    case "article":
+      return pageVerb(
+        brief,
+        `Falta a IA enxergar uma página sua sobre ${theme}.`,
+        `Melhore esta página. Ela pode ser a fonte da IA sobre ${theme}.`,
+      );
+  }
 }
 
 export function buildTrackLlmSupportLine(brief: TrackLlmContentBriefForCopy): string {
-  if (brief.catalog_first) {
-    const what = catalogGapPhrase(brief.catalog_gaps ?? []);
-    return `Por que isso importa: O cadastro é a base. Sem ${what} neste produto, a IA não tem fato seu para repetir — nem na ficha, nem num guia.`;
+  const reason = weekReasonFromBrief(brief);
+  switch (reason) {
+    case "catalog_first": {
+      const what = catalogGapPhrase(brief.catalog_gaps ?? []);
+      return `Por que isso importa: O cadastro é a base. Sem ${what} neste produto, a IA não tem fato seu para repetir — nem na ficha, nem num guia.`;
+    }
+    case "incoherent":
+      return "Por que isso importa: A IA já te citou. O risco agora é repetir o preço ou a marca errados.";
+    case "sources_without_store":
+      return "Por que isso importa: A IA já sabe o nome. Sem uma página sua nas fontes, o comprador vai para o site que ela leu.";
+    case "named_only":
+      return "Por que isso importa: Quem já sabe o nome te encontra. Quem busca a categoria ainda ouve o concorrente.";
+    case "category_partial":
+      return "Por que isso importa: A IA já te acha quando digitam o nome. O furo é quem ainda não te conhece.";
+    case "out":
+    case "partial":
+    case "article": {
+      const targetUrl = brief.target_url?.trim();
+      if (targetUrl && brief.target_url_source === "search_console") {
+        return "Por que isso importa: O Search Console já encontrou essa página, então ela pode virar a fonte mais clara para a IA entender o produto.";
+      }
+      if (targetUrl) {
+        return "Por que isso importa: A IA já encontrou uma página sua, mas ela ainda precisa explicar melhor o produto e guiar para a compra.";
+      }
+      if (brief.grounding_note === "review_not_listing") {
+        return "Por que isso importa: Hoje a IA está buscando essa resposta fora do seu site; falta uma página sua para concentrar esses fatos.";
+      }
+      return "Por que isso importa: A IA precisa encontrar uma página clara do seu domínio antes de confiar nessa resposta.";
+    }
   }
-  if (brief.incoherent) {
-    return "Por que isso importa: Ela já te citou. O risco agora é repetir o preço ou a marca errados — a página precisa bater com o Shopify.";
-  }
-  if (brief.sourcesWithoutStore) {
-    return "Por que isso importa: Ela já sabe o nome. Sem uma página sua nas fontes, o comprador vai para o site que ela leu.";
-  }
-  const targetUrl = brief.target_url?.trim();
-  if (targetUrl && brief.target_url_source === "search_console") {
-    return "Por que isso importa: O Search Console já encontrou essa página, então ela pode virar a fonte mais clara para a IA entender o produto.";
-  }
-  if (targetUrl) {
-    return "Por que isso importa: A IA já encontrou uma página sua, mas ela ainda precisa explicar melhor o produto e guiar para a compra.";
-  }
-  if (brief.grounding_note === "review_not_listing") {
-    return "Por que isso importa: Hoje a IA está buscando essa resposta fora do seu site; falta uma página sua para concentrar esses fatos.";
-  }
-  return "Por que isso importa: A IA precisa encontrar uma página clara do seu domínio antes de confiar nessa resposta.";
 }
 
 function urlsIn(text: string): string[] {
@@ -144,29 +168,29 @@ export function validateFounderActionCopy(
   brief: TrackLlmContentBriefForCopy,
 ): string | null {
   const trimmed = text.trim();
-  if (trimmed.length < 60) return "copy_too_short";
+  if (trimmed.length < 40) return "copy_too_short";
   if (trimmed.length > 700) return "copy_too_long";
   if (/^```|[{}[\]]/.test(trimmed)) return "copy_not_plain_text";
 
   const targetUrl = brief.target_url?.trim() || null;
   const urls = urlsIn(trimmed);
   if (!targetUrl && urls.length > 0) return "invented_url";
-  if (targetUrl) {
-    if (!trimmed.includes(targetUrl)) return "missing_target_url";
-    if (urls.some((url) => url !== targetUrl)) return "invented_url";
-  }
+  if (targetUrl && urls.some((url) => url !== targetUrl)) return "invented_url";
 
+  const reason = weekReasonFromBrief(brief);
+  if (targetUrl && reason !== "catalog_first" && /crie uma (página|landing)/i.test(trimmed)) {
+    return "create_page_on_existing_url";
+  }
   const folded = fold(trimmed);
-  const skuName = brief.sku_name?.trim();
-  if (skuName && !folded.includes(fold(skuName))) return "missing_sku_name";
-  if (brief.catalog_first && !/\b(cadastro|shopify)\b/.test(folded)) return "missing_catalog_first";
-  if (brief.incoherent && !/\b(preco|marca)\b/.test(folded)) return "missing_incoherent";
-  if (brief.sourcesWithoutStore && !/\b(nome|fontes|outros sites)\b/.test(folded)) {
+  if (reason === "catalog_first" && !/\b(cadastro|shopify)\b/.test(folded)) {
+    return "missing_catalog_first";
+  }
+  if (reason === "incoherent" && !/\b(preco|marca)\b/.test(folded)) return "missing_incoherent";
+  if (reason === "sources_without_store" && !/\b(nome|fontes|outros sites)\b/.test(folded)) {
     return "missing_sources_without_store";
   }
-
-  for (const attr of (brief.use_attrs ?? []).slice(0, 2)) {
-    if (attr.trim() && !folded.includes(fold(attr))) return "missing_allowed_attr";
+  if ((reason === "category_partial" || reason === "named_only") && !/\bnome\b/.test(folded)) {
+    return "missing_category_partial";
   }
 
   for (const attr of brief.skip_attrs ?? []) {
@@ -213,26 +237,6 @@ export async function renderFounderActionWithGuardrails(input: {
     }
     const reason = validateFounderActionCopy(result.text, input.brief);
     if (reason) {
-      if (
-        !input.brief.catalog_first &&
-        (reason === "missing_sku_name" || reason === "missing_allowed_attr")
-      ) {
-        const repaired = sentenceJoin([
-          result.text.trim(),
-          attrsLine(input.brief.use_attrs),
-          linkLine(input.brief),
-          skipLine(input.brief),
-          whyLine(input.brief),
-        ]);
-        if (!validateFounderActionCopy(repaired, input.brief)) {
-          return {
-            first_action: repaired,
-            copy_source: "llm",
-            copy_model: result.model,
-            copy_fallback_reason: null,
-          };
-        }
-      }
       return {
         first_action: fallback,
         copy_source: "deterministic_friendly",

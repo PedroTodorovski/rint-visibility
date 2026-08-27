@@ -1,3 +1,4 @@
+import { ga4SessionEvidence } from "../ports/ga4-revenue-adapter.js";
 import { createIntegrationPorts } from "../ports/mock-adapters.js";
 import { DEFAULT_PORT_TTL_MS, readThroughCache } from "../ports/read-through-cache.js";
 import type { VisibilityRepositories } from "../repositories/index.js";
@@ -64,9 +65,7 @@ export async function runDiagnosticPipeline(
   const assumptions = {
     receitaAiMedida: ga4Read.data.totalRevenue,
     sessoesAi: ga4Read.data.totalSessions,
-    ...(ga4Read.data.landings?.length
-      ? { sessoesAiLandings: ga4Read.data.landings.slice(0, 8) }
-      : {}),
+    ...ga4SessionEvidence(ga4Read.data),
     citationClient: citations.citationClient,
     citationCompetitor: citations.citationCompetitor,
     citationTotal: citations.citationTotal,

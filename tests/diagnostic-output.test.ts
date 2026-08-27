@@ -118,7 +118,11 @@ describe("buildDiagnosticOutput track_llm first_action", () => {
         ga4: {
           totalRevenue: 0,
           totalSessions: 44,
-          bySource: [],
+          bySource: [
+            { source: "chatgpt.com", medium: "ai-assistant", revenue: 0, sessions: 22 },
+            { source: "gemini.google.com", medium: "referral", revenue: 0, sessions: 13 },
+            { source: "perplexity.ai", medium: "(not set)", revenue: 0, sessions: 9 },
+          ],
           landings: [
             { path: "/", sessions: 35 },
             { path: "/blog/greens-em-po", sessions: 1 },
@@ -140,16 +144,14 @@ describe("buildDiagnosticOutput track_llm first_action", () => {
       "Produzir conteúdo de autoridade com atributos específicos do SKU.",
     );
     expect(String(next.first_action)).not.toContain("Melhor suplemento de greens no Brasil");
-    expect(String(next.first_action)).toContain("landing editorial/comparativa");
-    expect(String(next.first_action)).toContain("URL própria");
-    expect(String(next.first_action)).toContain("fora da PDP");
-    expect(String(next.first_action)).toMatch(/suplemento/i);
-    expect(String(next.first_action)).toContain("59 vitaminas");
-    expect(String(next.first_action)).toContain("Certificação NSF");
+    expect(String(next.first_action)).not.toMatch(/crie uma (página|landing)/i);
+    expect(String(next.first_action)).toContain("A sua página do produto já existe");
+    expect(String(next.first_action)).not.toContain("59 vitaminas");
+    expect(String(next.first_action)).not.toContain("Certificação NSF");
     expect(next.content_brief).toMatchObject({
       page_type: "landing_editorial_comparativa",
-      surface: "nova_landing_editorial_no_dominio_nao_pdp",
-      target_url: null,
+      surface: "pdp_medida",
+      target_url: "https://nuture.com.br/products/nuture-daily-boost",
       search_console_coverage: "unknown",
       grounding_note: "review_not_listing",
     });
@@ -165,13 +167,29 @@ describe("buildDiagnosticOutput track_llm first_action", () => {
       (
         output.risks[0]?.inputs as
           | {
-              assumptions?: { sessoesAiLandings?: Array<{ path: string; sessions: number }> };
+              assumptions?: {
+                sessoesAiLandings?: Array<{ path: string; sessions: number }>;
+                sessoesAiBySource?: Array<{ source: string; sessions: number }>;
+              };
             }
           | undefined
       )?.assumptions?.sessoesAiLandings,
     ).toEqual([
       { path: "/", sessions: 35 },
       { path: "/blog/greens-em-po", sessions: 1 },
+    ]);
+    expect(
+      (
+        output.risks[0]?.inputs as
+          | {
+              assumptions?: { sessoesAiBySource?: Array<{ source: string; sessions: number }> };
+            }
+          | undefined
+      )?.assumptions?.sessoesAiBySource,
+    ).toEqual([
+      { source: "chatgpt.com", sessions: 22 },
+      { source: "gemini.google.com", sessions: 13 },
+      { source: "perplexity.ai", sessions: 9 },
     ]);
     expect(String(next.first_action)).not.toMatch(/\/$/);
     expect((next.content_brief as { target_url?: string | null }).target_url).not.toBe("/");
@@ -227,8 +245,8 @@ describe("buildDiagnosticOutput track_llm first_action", () => {
     });
 
     const next = output.diagnostic.next_steps;
-    expect(String(next.first_action)).toContain("Melhore esta landing editorial/comparativa");
-    expect(String(next.first_action)).toContain("https://nuture.com.br/blog/greens-em-po");
+    expect(String(next.first_action)).toContain("Melhore esta página já existente");
+    expect(String(next.first_action)).not.toContain("https://nuture.com.br/blog/greens-em-po");
     expect(next.content_brief).toMatchObject({
       surface: "url_editorial_existente_no_dominio_nao_pdp",
       target_url: "https://nuture.com.br/blog/greens-em-po",
@@ -284,15 +302,15 @@ describe("buildDiagnosticOutput track_llm first_action", () => {
       },
     });
 
-    expect(String(output.diagnostic.next_steps.first_action)).toContain(
-      "https://nuture.com.br/blog/greens-em-po",
-    );
     expect(output.diagnostic.next_steps.content_brief).toMatchObject({
       surface: "url_editorial_existente_no_dominio_nao_pdp",
       target_url: "https://nuture.com.br/blog/greens-em-po",
       target_url_source: "search_console",
       search_console_coverage: "covered",
     });
+    expect(String(output.diagnostic.next_steps.first_action)).toContain(
+      "Melhore esta página já existente",
+    );
     expect(output.diagnostic.next_steps.support_line).toContain("Search Console");
   });
 
@@ -345,7 +363,7 @@ describe("buildDiagnosticOutput track_llm first_action", () => {
     });
 
     expect(String(output.diagnostic.next_steps.first_action)).toContain("Complete no Shopify");
-    expect(String(output.diagnostic.next_steps.first_action)).toContain(
+    expect(String(output.diagnostic.next_steps.first_action)).not.toContain(
       "https://nuture.com.br/products/nuture-daily-boost",
     );
     expect(String(output.diagnostic.next_steps.first_action)).not.toContain(
@@ -414,7 +432,7 @@ describe("buildDiagnosticOutput track_llm first_action", () => {
       target_url: "https://nuture.com.br/blog/greens-em-po",
     });
     expect(String(output.diagnostic.next_steps.first_action)).toContain(
-      "https://nuture.com.br/blog/greens-em-po",
+      "Melhore esta página já existente",
     );
   });
 
@@ -484,16 +502,57 @@ describe("buildDiagnosticOutput track_llm first_action", () => {
       skus: [gscSku],
       queries: [cited],
       track: "track_llm",
-      coherenceLevel: "incoerente",
+      storefrontIncoherent: true,
       finance: emptyFinance,
     });
 
     expect(output.diagnostic.next_steps.content_brief).toMatchObject({
       incoherent: true,
       catalog_first: false,
-      target_url: "https://nuture.com.br/blog/greens-em-po",
+      week_reason: "incoherent",
+      surface: "pdp_medida",
+      target_url: "https://nuture.com.br/products/nuture-daily-boost",
     });
     expect(output.diagnostic.next_steps.support_line).toContain("já te citou");
+    expect(String(output.diagnostic.next_steps.first_action)).toContain("não batem com a loja");
+    expect(String(output.diagnostic.next_steps.first_action)).not.toContain(
+      "A sua página do produto já existe",
+    );
+  });
+
+  it("does not treat a stale incoerente flag as the week reason without a storefront pair", () => {
+    const queries = [
+      {
+        ...query("Melhor suplemento de greens no Brasil", ["Certificação NSF"]),
+        cliente_foi_citado: true,
+      },
+      query("Alternativa ao AG1 com vitaminas e minerais", ["75 vitaminas e minerais"]),
+      query("suplemento greens em pó com CoQ10", ["1 scoop por dia"]),
+      {
+        ...query("Nuture Daily Boost vale a pena", []),
+        cliente_foi_citado: true,
+      },
+      {
+        ...query("Nuture Daily Boost vs AG1", ["Certificação NSF"]),
+        cliente_foi_citado: true,
+      },
+    ];
+    const output = buildDiagnosticOutput({
+      jobId: "job-1",
+      primarySku: gscSku,
+      skus: [gscSku],
+      queries,
+      track: "track_llm",
+      coherenceLevel: "incoerente",
+      finance: emptyFinance,
+    });
+
+    expect(output.diagnostic.next_steps.content_brief).toMatchObject({
+      incoherent: false,
+      week_reason: "category_partial",
+    });
+    expect(output.diagnostic.next_steps.support_line).toContain("já te acha quando digitam o nome");
+    expect(output.diagnostic.next_steps.support_line).not.toContain("preço ou a marca errados");
   });
 
   it("leads with named-without-store when the answer names the brand and grounding skipped the shopfront", () => {
@@ -514,6 +573,7 @@ describe("buildDiagnosticOutput track_llm first_action", () => {
     expect(output.diagnostic.next_steps.content_brief).toMatchObject({
       sourcesWithoutStore: true,
       catalog_first: false,
+      week_reason: "sources_without_store",
       target_url: "https://nuture.com.br/blog/greens-em-po",
     });
     expect(output.diagnostic.next_steps.support_line).toContain("já sabe o nome");

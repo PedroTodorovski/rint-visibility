@@ -98,6 +98,33 @@ function normalizePropertyId(propertyId: string): string {
   return propertyId.replace(/^properties\//, "").trim();
 }
 
+export type Ga4AiSourceSessions = { source: string; sessions: number };
+
+/** Persist hosts that actually sent sessions — not revenue, not medium. */
+export function snapshotGa4AiSources(
+  bySource: Array<{ source: string; sessions: number }>,
+): Ga4AiSourceSessions[] {
+  const rows: Ga4AiSourceSessions[] = [];
+  for (const row of bySource) {
+    const source = row.source.trim();
+    if (!source || row.sessions <= 0) continue;
+    rows.push({ source, sessions: row.sessions });
+  }
+  return rows;
+}
+
+export function ga4SessionEvidence(ga4: Pick<Ga4AiReferralRevenue, "landings" | "bySource">): {
+  sessoesAiLandings?: Ga4AiLanding[];
+  sessoesAiBySource?: Ga4AiSourceSessions[];
+} {
+  const landings = (ga4.landings ?? []).slice(0, GA4_AI_LANDING_LIMIT);
+  const sources = snapshotGa4AiSources(ga4.bySource);
+  return {
+    ...(landings.length > 0 ? { sessoesAiLandings: landings } : {}),
+    ...(sources.length > 0 ? { sessoesAiBySource: sources } : {}),
+  };
+}
+
 export function parseGa4LandingRows(payload: RunReportResponse): Ga4AiLanding[] {
   const landings: Ga4AiLanding[] = [];
   for (const row of payload.rows ?? []) {

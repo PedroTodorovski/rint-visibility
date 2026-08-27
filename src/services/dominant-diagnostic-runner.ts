@@ -5,12 +5,22 @@ import {
   scoreClientCitation,
 } from "../lib/citation-gold.js";
 import {
+  citedObjectHasCheckout,
   crownCompetitorSku,
   hostFromUrl,
+  isLikelyProductUrl,
   mergeFollowUpCitedObjects,
+  planCitedFaceFollowUp,
   planCitedOfferFollowUp,
+  productIdentityKey,
+  vsRivalProductKeys,
 } from "../lib/cited-offer.js";
-import { resolveCitedOfferImage, stampStructuredCitedImage } from "../lib/cited-offer-image.js";
+import {
+  groundingUrlsForCitedObject,
+  resolveCitedOfferPage,
+  stampStructuredCitedFacts,
+  stampStructuredCitedImage,
+} from "../lib/cited-offer-image.js";
 import { AppError } from "../lib/errors.js";
 import {
   type BoundGroundingSupport,
@@ -37,6 +47,7 @@ import {
   shopperEvidenceProvider,
 } from "../lib/llm/index.js";
 import { mapPool } from "../lib/map-pool.js";
+import { offerMatchesCited } from "../lib/shopper-offer.js";
 import { filterAliveUrls } from "../lib/url-validator.js";
 import { createIntegrationPorts } from "../ports/mock-adapters.js";
 import { DEFAULT_PORT_TTL_MS, readThroughCache } from "../ports/read-through-cache.js";
@@ -482,6 +493,20 @@ async function executeQuery(input: {
 
 type QueryDraft = Omit<DiagnosticQueryRow, "id" | "created_at">;
 
+function incomingObjectsForFace(
+  incoming: GeminiCitedObject[],
+  productKey: string,
+  cited: { marca?: string | null; produto?: string | null },
+): GeminiCitedObject[] {
+  return incoming.filter((object) => {
+    if (productIdentityKey(object) === productKey) return true;
+    return offerMatchesCited(
+      { name: [object.marca, object.produto].filter(Boolean).join(" "), url: object.url },
+      cited,
+    );
+  });
+}
+
 async function completeCitedOffers(input: {
   store: StoreRow;
   skuRows: Array<{ row: DiagnosticSkuRow }>;
@@ -500,40 +525,25 @@ async function completeCitedOffers(input: {
     bySku.set(draft.sku_id, list);
   }
 
-  for (const sku of input.skuRows) {
-    const skuDrafts = bySku.get(sku.row.id);
-    if (!skuDrafts?.length) continue;
-    if (skuDrafts.every(isDayPhotoCopy)) continue;
-    const objectsByQuery = skuDrafts.map((draft) =>
-      citedObjectsFromStructured(draft.gemini_structured),
-    );
-    const citedByQuery = skuDrafts.map((draft) => draft.gemini_structured.cliente_foi_citado);
-    const crown = crownCompetitorSku({
-      client: {
-        name: sku.row.shopify_data.name,
-        brand: sku.row.shopify_data.brand,
-        url: sku.row.url,
-      },
-      objectsByQuery,
-      citedByQuery,
-    });
-    const plan = planCitedOfferFollowUp(crown);
-    if (!plan) continue;
-
+  const applyFollowUp = async (
+    sku: DiagnosticSkuRow,
+    last: QueryDraft,
+    query: string,
+    incomingFilter?: (incoming: GeminiCitedObject[]) => GeminiCitedObject[],
+  ): Promise<boolean> => {
     const result = await diagnoseOrSkip({
       client: primary.client,
-      query: plan.query,
+      query,
       store: input.store,
-      sku: sku.row,
+      sku,
       temperature: input.config.geminiTemperature,
     });
-    const last = skuDrafts[skuDrafts.length - 1];
-    if (!last || isDayPhotoCopy(last) || !result) continue;
+    if (!result) return false;
     const followUpIdentity = {
       storeName: input.store.name,
       domain: input.store.domain,
-      productUrl: sku.row.url,
-      productName: sku.row.shopify_data.name,
+      productUrl: sku.url,
+      productName: sku.shopify_data.name,
     };
     const resolved = await resolveDiagnosticGrounding(result);
     const citation = scoreClientCitation({
@@ -553,9 +563,10 @@ async function completeCitedOffers(input: {
     };
     const existing = citedObjectsFromStructured(last.gemini_structured);
     const incoming = citedObjectsFromStructured(stampedResultStructured);
+    const merged = incomingFilter ? incomingFilter(incoming) : incoming;
     last.gemini_structured = hydrateGeminiStructured({
       ...last.gemini_structured,
-      objetos_citados: mergeFollowUpCitedObjects(existing, incoming),
+      objetos_citados: mergeFollowUpCitedObjects(existing, merged),
     });
     const executions = [...((last.executions ?? []) as unknown as QueryExecutionRecord[])];
     executions.push({
@@ -571,7 +582,63 @@ async function completeCitedOffers(input: {
       follow_up: true,
     });
     last.executions = executions as unknown as Record<string, unknown>[];
-    followUps += 1;
+    return true;
+  };
+
+  for (const sku of input.skuRows) {
+    const skuDrafts = bySku.get(sku.row.id);
+    if (!skuDrafts?.length) continue;
+    if (skuDrafts.every(isDayPhotoCopy)) continue;
+    const objectsByQuery = skuDrafts.map((draft) =>
+      citedObjectsFromStructured(draft.gemini_structured),
+    );
+    const citedByQuery = skuDrafts.map((draft) => draft.gemini_structured.cliente_foi_citado);
+    const client = {
+      name: sku.row.shopify_data.name,
+      brand: sku.row.shopify_data.brand,
+      url: sku.row.url,
+    };
+    const crown = crownCompetitorSku({
+      client,
+      objectsByQuery,
+      citedByQuery,
+    });
+    const keys = vsRivalProductKeys({
+      client,
+      queries: skuDrafts.map((draft, index) => ({
+        text: draft.query_text,
+        cited: citedByQuery[index],
+        objects: objectsByQuery[index] ?? [],
+      })),
+      candidates: crown.candidates,
+      clearProductKey: crown.confidence === "clear" ? crown.productKey : null,
+    });
+    const allObjects = objectsByQuery.flat();
+    const last = skuDrafts[skuDrafts.length - 1];
+    if (!last || isDayPhotoCopy(last)) continue;
+
+    let ranFace = false;
+    for (const productKey of keys) {
+      const mentions = allObjects.filter((object) => productIdentityKey(object) === productKey);
+      if (mentions.some((object) => citedObjectHasCheckout(object))) continue;
+      const plan = planCitedFaceFollowUp(mentions[0] ?? { produto: productKey.split("|")[1] });
+      if (!plan) continue;
+      const cited = {
+        marca: mentions[0]?.marca ?? null,
+        produto: mentions[0]?.produto ?? null,
+      };
+      const ok = await applyFollowUp(sku.row, last, plan.query, (incoming) =>
+        incomingObjectsForFace(incoming, productKey, cited),
+      );
+      if (ok) {
+        followUps += 1;
+        ranFace = true;
+      }
+    }
+    if (ranFace) continue;
+    const plan = planCitedOfferFollowUp(crown);
+    if (!plan || plan.reason === "missing_facts") continue;
+    if (await applyFollowUp(sku.row, last, plan.query)) followUps += 1;
   }
 
   return { drafts: input.drafts, followUps };
@@ -605,23 +672,88 @@ async function hydrateCitedOfferImages(input: {
       objectsByQuery,
       citedByQuery,
     });
-    if (crown.confidence !== "clear" || !crown.productKey) continue;
-    const groundingUrls = skuDrafts.flatMap((draft) => {
-      const executions = (draft.executions ?? []) as Array<{ grounding_urls?: string[] }>;
-      return executions.flatMap((execution) => execution.grounding_urls ?? []);
+    const client = {
+      name: sku.row.shopify_data.name,
+      brand: sku.row.shopify_data.brand,
+      url: sku.row.url,
+    };
+    const keys = vsRivalProductKeys({
+      client,
+      queries: skuDrafts.map((draft, index) => ({
+        text: draft.query_text,
+        cited: citedByQuery[index],
+        objects: objectsByQuery[index] ?? [],
+      })),
+      candidates: crown.candidates,
+      clearProductKey: crown.confidence === "clear" ? crown.productKey : null,
     });
-    const hit = await resolveCitedOfferImage({
-      imagemUrl: crown.imagem_url,
-      productUrl: crown.url,
-      groundingUrls,
-    });
-    if (!hit) continue;
+    if (keys.length === 0) continue;
+    const allObjects = objectsByQuery.flat();
+    const groundingPool: string[] = [];
+    const groundingTitles: Array<{ url: string; title?: string | null }> = [];
     for (const draft of skuDrafts) {
-      draft.gemini_structured = stampStructuredCitedImage(
-        draft.gemini_structured,
-        crown.productKey,
-        hit.url,
-      );
+      const executions = (draft.executions ?? []) as QueryExecutionRecord[];
+      for (const execution of executions) {
+        for (const href of execution.grounding_urls ?? []) {
+          groundingPool.push(href);
+        }
+        for (const row of execution.citation?.resolved ?? []) {
+          if (row.to) groundingPool.push(row.to);
+        }
+        for (const support of execution.grounding_supports ?? []) {
+          for (const href of support.hrefs ?? []) {
+            groundingPool.push(href);
+            groundingTitles.push({ url: href, title: support.text ?? null });
+          }
+        }
+      }
+    }
+    const pages = await Promise.all(
+      keys.map(async (productKey) => {
+        const mentions = allObjects.filter((object) => productIdentityKey(object) === productKey);
+        const cited = {
+          marca: mentions[0]?.marca ?? null,
+          produto: mentions[0]?.produto ?? null,
+        };
+        const seller = mentions.find((object) => object.loja?.trim())?.loja?.trim() || null;
+        const productUrl =
+          mentions.find((object) => isLikelyProductUrl(object.url))?.url?.trim() ||
+          mentions.find((object) => object.url?.trim())?.url?.trim() ||
+          null;
+        const page = await resolveCitedOfferPage({
+          productUrl,
+          groundingUrls: groundingUrlsForCitedObject(groundingPool, cited, groundingTitles),
+          cited,
+          seller,
+        });
+        return { productKey, page };
+      }),
+    );
+    for (const { productKey, page } of pages) {
+      for (const draft of skuDrafts) {
+        if (!page.pageUrl) {
+          draft.gemini_structured = stampStructuredCitedFacts(
+            draft.gemini_structured,
+            productKey,
+            page.facts,
+            { dropUrl: true },
+          );
+          continue;
+        }
+        if (page.image) {
+          draft.gemini_structured = stampStructuredCitedImage(
+            draft.gemini_structured,
+            productKey,
+            page.image.url,
+          );
+        }
+        draft.gemini_structured = stampStructuredCitedFacts(
+          draft.gemini_structured,
+          productKey,
+          page.facts,
+          { fromCheckout: Boolean(page.pageUrl) },
+        );
+      }
     }
   }
   return input.drafts;
@@ -765,17 +897,24 @@ export async function runDominantDiagnostic(
         },
       )
     ).filter((draft): draft is QueryDraft => draft != null);
+    const hydrated = await hydrateCitedOfferImages({
+      skuRows,
+      drafts: queryDrafts,
+    });
     const completed = await completeCitedOffers({
       store,
       skuRows,
-      drafts: queryDrafts,
+      drafts: hydrated,
       llm: deps.llm,
       config: runConfig,
     });
-    const imagedDrafts = await hydrateCitedOfferImages({
-      skuRows,
-      drafts: completed.drafts,
-    });
+    const imagedDrafts =
+      completed.followUps > 0
+        ? await hydrateCitedOfferImages({
+            skuRows,
+            drafts: completed.drafts,
+          })
+        : completed.drafts;
     const queryRows: DiagnosticQueryRow[] = [];
     for (const draft of imagedDrafts) {
       queryRows.push(await deps.repos.diagnosticQueries.create(draft));
@@ -890,6 +1029,7 @@ export async function runDominantDiagnostic(
         queries: queryRows,
         track: triage.track,
         coherenceLevel: triage.coherenceLevel,
+        storefrontIncoherent: triage.coherenceIncident != null,
         finance,
       });
 

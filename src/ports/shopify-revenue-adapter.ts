@@ -278,7 +278,7 @@ const PRODUCT_SNAPSHOT_FIELDS = `
                 featuredImage { url altText }
                 priceRangeV2 { minVariantPrice { amount currencyCode } }
                 options { name values }
-                metafields(first: 20, namespace: "custom") {
+                metafields(first: 50) {
                   edges { node { namespace key value } }
                 }
                 variants(first: 20) {

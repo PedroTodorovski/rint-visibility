@@ -1,11 +1,12 @@
 import type { ResolvedGroundingUrl } from "./citation-gold.js";
 import { normalizeHost } from "./citation-gold.js";
+import { OFFER_FETCH_TIMEOUT_MS, offerFetchHeaders } from "./offer-fetch.js";
 
 const REDIRECT_HOSTS = new Set(["vertexaisearch.cloud.google.com", "www.google.com", "google.com"]);
-const RESOLVE_TIMEOUT_MS = 5_000;
+const RESOLVE_TIMEOUT_MS = OFFER_FETCH_TIMEOUT_MS;
 const MAX_RESOLVE = 12;
 
-function isGoogleRedirect(url: string): boolean {
+export function isGoogleRedirect(url: string): boolean {
   try {
     const parsed = new URL(url);
     const host = parsed.hostname.toLowerCase();
@@ -38,10 +39,7 @@ export async function resolveGroundingUrl(
       method: "GET",
       redirect: "follow",
       signal: AbortSignal.timeout(RESOLVE_TIMEOUT_MS),
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (compatible; Rint-Visibility/1.0; +https://rint.io) AppleWebKit/537.36",
-      },
+      headers: offerFetchHeaders(),
     });
     const finalUrl = response.url?.trim() || from;
     const host = normalizeHost(new URL(finalUrl).hostname);
