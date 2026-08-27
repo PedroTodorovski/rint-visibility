@@ -1,10 +1,13 @@
 /**
  * Dominant-track routing for the diagnostic **job** snapshot.
  * Map: rint-app/docs/DIAGNOSIS-DOMINANT.md
+ * Didactic: docs/MAPA-DO-DIAGNOSTICO.md (§ 4.1 — store vs same SKU elsewhere vs occupant).
  *
  * Closed URL still wins first (track_pdp). Shopify connected without this
  * product (not marketplace) is also track_pdp. Citation gap and hard
- * price/brand mismatch on the client object are track_llm. Thin Admin
+ * price/brand mismatch on the **client storefront** object are track_llm.
+ * `incoerente` only if the run can name the pair (`coherenceIncident`).
+ * A reseller / marketplace shelf of the same SKU is not price 3.1.1 or brand 3.1.3. Thin Admin
  * (description/attrs) is track_llm when JSON-LD is already on the street.
  * Open street without JSON-LD is track_pdp even if Admin is thin — job and
  * screen must agree or the week glass is empty. `track_produto` needs a competitor (or store) object in
@@ -13,6 +16,12 @@
  * only (CAC > card price or spend with zero purchases) — not Google Ads / Merchant.
  */
 
+import {
+  compactIdentity,
+  isClientStorefrontObject,
+  lostOccupantSpeech,
+  occupantsFromLostQueries,
+} from "../lib/cited-offer.js";
 import { citedObjectsFromStructured, isCitedClientObject } from "../lib/llm/gemini-structured.js";
 import type {
   GoogleAdsSkuWaste,
@@ -22,6 +31,7 @@ import type {
 } from "../ports/types.js";
 import type { DiagnosticQueryRow } from "../repositories/diagnostic-tables.js";
 import { type DecisionStep, step } from "./decision-trace.js";
+import { formatOfferPrice } from "./diagnostic-output.js";
 import type {
   CoherenceLevel,
   DiagnosticTrack,
@@ -42,9 +52,17 @@ export type TriageInput = {
 
 export type TriageOutcome = {
   coherenceLevel: CoherenceLevel;
+  /** Nameable storefront pair — without this, the week is not “não bate com a loja”. */
+  coherenceIncident: CoherenceIncident | null;
   track: DiagnosticTrack;
   checks: Record<string, unknown>;
   trace: DecisionStep[];
+};
+
+export type CoherenceIncident = {
+  kind: "price" | "brand";
+  said: string;
+  catalog: string;
 };
 
 function normalized(text: string | null | undefined): string {
@@ -76,12 +94,32 @@ function brandMatchesObject(
   object: GeminiCitedObject,
   shopify: ShopifyProductSnapshot,
 ): boolean | null {
-  const cited = normalized(object.marca ?? object.produto);
+  const cited = compactIdentity(object.marca ?? object.produto);
   if (!cited) return null;
-  const realNames = [shopify.name, shopify.brand].map(normalized).filter(Boolean);
-  return realNames.some(
-    (name) => name.includes(cited) || cited.includes(name.split(/\s+/)[0] ?? name),
-  );
+  const realNames = [shopify.name, shopify.brand].map(compactIdentity).filter(Boolean);
+  if (realNames.length === 0) return null;
+  return realNames.some((name) => name.includes(cited) || cited.includes(name));
+}
+
+function incidentOnStorefront(
+  object: GeminiCitedObject,
+  shopify: ShopifyProductSnapshot,
+  client: { name: string; brand: string | null; url: string },
+): CoherenceIncident | null {
+  if (!isClientStorefrontObject(object, client)) return null;
+  const price = priceMatches(object.preco, shopify.currentPrice);
+  if (price === false) {
+    const said = formatOfferPrice(object.preco, object.moeda ?? shopify.currency);
+    const catalog = formatOfferPrice(shopify.currentPrice, shopify.currency);
+    if (said && catalog) return { kind: "price", said, catalog };
+  }
+  const brand = brandMatchesObject(object, shopify);
+  if (brand === false) {
+    const said = (object.marca ?? object.produto ?? "").trim();
+    const catalog = (shopify.brand?.trim() || shopify.name).trim();
+    if (said && catalog) return { kind: "brand", said, catalog };
+  }
+  return null;
 }
 
 function mergeCheck(current: boolean | null, next: boolean | null): boolean | null {
@@ -129,7 +167,7 @@ function panelMismatch(snapshot: ShopifyProductSnapshot): boolean {
 export function computeTriage(input: TriageInput): TriageOutcome {
   const skuById = new Map(input.skus.map((sku) => [sku.id, sku.shopify]));
   const checks: Array<Record<string, unknown>> = [];
-  let hardMismatch = false;
+  let coherenceIncident: CoherenceIncident | null = null;
   let partialMismatch = false;
 
   for (const query of input.queries) {
@@ -147,9 +185,14 @@ export function computeTriage(input: TriageInput): TriageOutcome {
     let attrs: boolean | null = null;
     let brand: boolean | null = null;
     for (const object of clientObjects) {
-      price = mergeCheck(price, priceMatches(object.preco, shopify.currentPrice));
+      if (isClientStorefrontObject(object, client)) {
+        price = mergeCheck(price, priceMatches(object.preco, shopify.currentPrice));
+        brand = mergeCheck(brand, brandMatchesObject(object, shopify));
+        if (!coherenceIncident) {
+          coherenceIncident = incidentOnStorefront(object, shopify, client);
+        }
+      }
       attrs = mergeCheck(attrs, attributesExist(object.atributos, shopify.attributes));
-      brand = mergeCheck(brand, brandMatchesObject(object, shopify));
     }
 
     checks.push({
@@ -160,7 +203,6 @@ export function computeTriage(input: TriageInput): TriageOutcome {
       client_cited: query.cliente_foi_citado,
     });
 
-    if (price === false || brand === false) hardMismatch = true;
     if (attrs === false) partialMismatch = true;
   }
 
@@ -193,7 +235,7 @@ export function computeTriage(input: TriageInput): TriageOutcome {
   });
 
   let coherenceLevel: CoherenceLevel = "coerente";
-  if (hardMismatch) coherenceLevel = "incoerente";
+  if (coherenceIncident) coherenceLevel = "incoerente";
   else if (partialMismatch) coherenceLevel = "parcialmente_coerente";
 
   let track: DiagnosticTrack;
@@ -254,7 +296,7 @@ export function computeTriage(input: TriageInput): TriageOutcome {
       "incoherent",
       "A resposta da IA é incoerente — preço ou marca citados não batem com o que a loja realmente vende?",
       coherenceLevel === "incoerente",
-      { coherence_level: coherenceLevel },
+      { coherence_level: coherenceLevel, coherence_incident: coherenceIncident },
     ],
     [
       "citation_gap",
@@ -305,8 +347,20 @@ export function computeTriage(input: TriageInput): TriageOutcome {
     );
   }
 
+  const primary = input.skus[0]?.shopify;
+  const lostOccupants = primary
+    ? occupantsFromLostQueries(
+        input.queries.map((query) => ({
+          cliente_foi_citado: query.cliente_foi_citado,
+          gemini_structured: query.gemini_structured,
+        })),
+        { name: primary.name, brand: primary.brand, url: primary.url },
+      )
+    : [];
+
   return {
     coherenceLevel,
+    coherenceIncident,
     track,
     checks: {
       one_dominant_track: true,
@@ -315,6 +369,9 @@ export function computeTriage(input: TriageInput): TriageOutcome {
       media_waste_detected: mediaWaste,
       storefront_not_public: storefrontClosed,
       comparisons: checks,
+      coherence_incident: coherenceIncident,
+      lost_occupants: lostOccupants,
+      lost_occupant_speech: lostOccupantSpeech(lostOccupants),
     },
     trace,
   };

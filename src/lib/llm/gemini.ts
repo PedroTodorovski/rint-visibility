@@ -255,7 +255,9 @@ Rules:
 - Preserve URL only when it is explicit in the quoted answer or grounding.
 - imagem_url only when the quoted answer or grounding contains an explicit http(s) image URL. Do not guess a CDN path.
 - Do not infer a price if no price is cited.
-- atributos are characteristics of THAT object only (material, color, size, warranty, etc.).
+- atributos are short characteristics of THAT object only (material, dose, certification, color, size). One phrase per array item.
+- Never put product names, other SKUs, GIDs, JSON, HTML, or full sentences in atributos.
+- If the quoted answer lists several product names, those are separate objetos_citados, not atributos.
 - Singular fields stay for compatibility: primary cited object, or the competitor if the client was not cited.
 - Set cliente_foi_citado true only if the quoted answer recommends the shopper buy from that store or product. A mention that the store or product was not found is false.`;
 }

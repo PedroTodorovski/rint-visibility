@@ -1,7 +1,6 @@
-const FETCH_TIMEOUT_MS = 8_000;
-/** Browser-like UA — some storefronts strip JSON-LD for unknown bots. */
-const USER_AGENT =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
+import { OFFER_FETCH_TIMEOUT_MS, offerFetchHeaders } from "./offer-fetch.js";
+
+const FETCH_TIMEOUT_MS = OFFER_FETCH_TIMEOUT_MS;
 
 /**
  * Identity from a public PDP GET. Not Shopify-specific — any store with JSON-LD Product
@@ -21,6 +20,8 @@ export type PublicPdpIdentity = {
   material: string | null;
   color: string | null;
   dimension: string | null;
+  rating: string | null;
+  shipping: string | null;
   image: string | null;
   imageSource: "json_ld" | "og" | null;
   hasJsonLd: boolean | null;
@@ -51,6 +52,8 @@ function emptyIdentity(hasJsonLd: boolean | null = null): PublicPdpIdentity {
     material: null,
     color: null,
     dimension: null,
+    rating: null,
+    shipping: null,
     image: null,
     imageSource: null,
     hasJsonLd,
@@ -177,6 +180,68 @@ function offerPrice(offers: unknown): { price: number; currency: string | null }
     }
   }
   return { price: 0, currency: null };
+}
+
+function aggregateRatingText(node: Record<string, unknown>): string | null {
+  const record = asRecord(node.aggregateRating);
+  if (!record) return null;
+  const value =
+    textValue(record.ratingValue) ??
+    (typeof record.ratingValue === "number" && Number.isFinite(record.ratingValue)
+      ? String(record.ratingValue)
+      : null);
+  if (!value) return null;
+  const count =
+    textValue(record.reviewCount) ??
+    textValue(record.ratingCount) ??
+    (typeof record.reviewCount === "number" && Number.isFinite(record.reviewCount)
+      ? String(record.reviewCount)
+      : null);
+  return count ? `${value} (${count})` : value;
+}
+
+function offerShippingText(offers: unknown): string | null {
+  const list = Array.isArray(offers) ? offers : [offers];
+  for (const offer of list) {
+    const record = asRecord(offer);
+    if (!record) continue;
+    const details = asRecord(record.shippingDetails);
+    const handling = asRecord(details?.handlingTime) ?? asRecord(record.handlingTime);
+    const min = handling ? (textValue(handling.minValue) ?? textValue(handling.value)) : null;
+    const max = handling ? textValue(handling.maxValue) : null;
+    const unit = handling ? (textValue(handling.unitText) ?? textValue(handling.unitCode)) : null;
+    if (min && max && unit) return `${min}–${max} ${unit}`;
+    if (min && unit) return `${min} ${unit}`;
+    const named = textValue(details?.name) ?? textValue(record.shippingDetails);
+    if (named) return named;
+  }
+  return null;
+}
+
+function warrantyText(node: Record<string, unknown>): string | null {
+  const direct = textValue(node.warranty);
+  if (direct) return direct;
+  const record = asRecord(node.warranty);
+  if (record) {
+    return (
+      textValue(record.name) ??
+      quantitativeText(record.durationOfWarranty) ??
+      textValue(record.warrantyPromise)
+    );
+  }
+  const offers = Array.isArray(node.offers) ? node.offers : node.offers ? [node.offers] : [];
+  for (const offer of offers) {
+    const row = asRecord(offer);
+    if (!row) continue;
+    const named = textValue(row.warranty);
+    if (named) return named;
+    const nested = asRecord(row.warranty);
+    if (nested) {
+      const inner = textValue(nested.name) ?? quantitativeText(nested.durationOfWarranty);
+      if (inner) return inner;
+    }
+  }
+  return null;
 }
 
 function quantitativeText(value: unknown): string | null {
@@ -384,6 +449,33 @@ function hasProductMicrodata(html: string): boolean {
   return /itemtype\s*=\s*["'][^"']*schema\.org\/Product\b/i.test(html);
 }
 
+function productMicrodataBlock(html: string): string | null {
+  const match = html.match(/itemtype\s*=\s*["'][^"']*schema\.org\/Product\b/i);
+  if (!match || match.index == null) return null;
+  const start = Math.max(0, match.index - 240);
+  return html.slice(start, match.index + 8_000);
+}
+
+function itempropValue(block: string, prop: string): string | null {
+  const escaped = prop.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const content = block.match(
+    new RegExp(`itemprop=["']${escaped}["'][^>]*content=["']([^"']+)["']`, "i"),
+  );
+  const contentAlt = block.match(
+    new RegExp(`content=["']([^"']+)["'][^>]*itemprop=["']${escaped}["']`, "i"),
+  );
+  const fromContent = decodeEntities(content?.[1]?.trim() || contentAlt?.[1]?.trim() || "");
+  if (fromContent) return fromContent;
+  const src = block.match(new RegExp(`itemprop=["']${escaped}["'][^>]*src=["']([^"']+)["']`, "i"));
+  const srcAlt = block.match(
+    new RegExp(`src=["']([^"']+)["'][^>]*itemprop=["']${escaped}["']`, "i"),
+  );
+  const fromSrc = decodeEntities(src?.[1]?.trim() || srcAlt?.[1]?.trim() || "");
+  if (fromSrc) return fromSrc;
+  const text = block.match(new RegExp(`itemprop=["']${escaped}["'][^>]*>([^<]+)<`, "i"));
+  return decodeEntities(text?.[1]?.replace(/\s+/g, " ").trim() || "") || null;
+}
+
 function metaContent(html: string, property: string): string | null {
   const escaped = property.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const re = new RegExp(
@@ -453,7 +545,7 @@ export function isBlockedStorefrontHtml(html: string, finalUrl: string): boolean
   return false;
 }
 
-/** Floor identity from a public PDP GET. Platform-agnostic: JSON-LD Product, then Open Graph. */
+/** Floor identity from a public PDP GET. JSON-LD Product, then Open Graph, then Product microdata. */
 export function parsePublicPdpHtml(html: string, baseUrl: string | null = null): PublicPdpIdentity {
   const identity = emptyIdentity(false);
   const product = firstProduct(html);
@@ -481,6 +573,14 @@ export function parsePublicPdpHtml(html: string, baseUrl: string | null = null):
       ]);
     identity.image = imageUrl(product.image, baseUrl);
     if (identity.image) identity.imageSource = "json_ld";
+    identity.rating = aggregateRatingText(product);
+    identity.shipping = offerShippingText(product.offers);
+    const warranty = warrantyText(product);
+    const shopper: string[] = [];
+    if (identity.rating) shopper.push(`Avaliação: ${identity.rating}`);
+    if (identity.shipping) shopper.push(`Frete: ${identity.shipping}`);
+    if (warranty) shopper.push(`Garantia: ${warranty}`);
+    identity.attributes = [...new Set([...shopper, ...identity.attributes])].slice(0, 16);
   } else if (hasProductMicrodata(html)) {
     identity.hasJsonLd = true;
   }
@@ -524,6 +624,23 @@ export function parsePublicPdpHtml(html: string, baseUrl: string | null = null):
       "height",
       "depth",
     ]);
+  }
+
+  const micro = productMicrodataBlock(html);
+  if (micro) {
+    if (!identity.name) identity.name = itempropValue(micro, "name");
+    if (!identity.brand) identity.brand = itempropValue(micro, "brand");
+    if (!(identity.currentPrice > 0)) {
+      identity.currentPrice = numberValue(itempropValue(micro, "price"));
+    }
+    if (!identity.currency) identity.currency = itempropValue(micro, "priceCurrency");
+    if (!identity.image) {
+      const resolved = absolutizeHttpUrl(itempropValue(micro, "image") ?? "", baseUrl);
+      if (resolved) {
+        identity.image = resolved;
+        identity.imageSource = "og";
+      }
+    }
   }
 
   if (!identity.name) {
@@ -635,7 +752,10 @@ export function detectStorefrontPlatform(input: {
   return null;
 }
 
-export async function fetchPublicPdp(url: string): Promise<PublicPdpFetch> {
+export async function fetchPublicPdp(
+  url: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<PublicPdpFetch> {
   try {
     const parsed = new URL(url);
     if (!["http:", "https:"].includes(parsed.protocol)) {
@@ -649,16 +769,11 @@ export async function fetchPublicPdp(url: string): Promise<PublicPdpFetch> {
       });
     }
 
-    const res = await fetch(url, {
+    const res = await fetchImpl(url, {
       method: "GET",
       redirect: "follow",
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-      headers: {
-        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
-        "User-Agent": USER_AGENT,
-        "Cache-Control": "no-cache",
-      },
+      headers: offerFetchHeaders(),
     });
     const alive = res.status >= 200 && res.status < 400;
     const html = alive ? await res.text() : null;

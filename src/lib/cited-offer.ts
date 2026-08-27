@@ -1,5 +1,7 @@
 /** Competitor SKU identity + crown view. Persist every cited object; crown does not delete. */
 
+import { canonicalProductUrl, isLikelyPdpUrl } from "./product-url-gate.js";
+
 export type OfferConfidence = "clear" | "split" | "store_only" | "empty";
 
 export type CitedObjectLike = {
@@ -74,24 +76,134 @@ export function foldIdentity(value: string | null | undefined): string {
     .trim();
 }
 
+/** Same as foldIdentity, but "Complete Bari" and "CompleteBari" are one name. */
+export function compactIdentity(value: string | null | undefined): string {
+  return foldIdentity(value).replace(/\s+/g, "");
+}
+
+/** Marca + produto without “Centrum Centrum Bariátrico”. Twin: rint-app. */
+export function formatCitedOfferLabel(
+  marca: string | null | undefined,
+  produto: string | null | undefined,
+): string {
+  const brand = marca?.trim() ?? "";
+  const product = produto?.trim() ?? "";
+  if (!brand) return product;
+  if (!product) return brand;
+  const brandFold = foldIdentity(brand);
+  const productFold = foldIdentity(product);
+  if (productFold.startsWith(brandFold)) return product;
+  if (brandFold.startsWith(productFold)) return brand;
+  return `${brand} ${product}`;
+}
+
 export function hostFromUrl(url: string | null | undefined): string | null {
   if (!url) return null;
+  const trimmed = url.trim();
+  if (!trimmed) return null;
+  const href = trimmed.includes("://")
+    ? trimmed
+    : /^[a-z0-9.-]+\.[a-z]{2,}(?:[:/?#]|$)/i.test(trimmed)
+      ? `https://${trimmed}`
+      : trimmed;
   try {
-    const host = new URL(url).hostname.replace(/^www\./, "").toLowerCase();
+    const host = new URL(href).hostname.replace(/^www\./, "").toLowerCase();
     return host || null;
   } catch {
     return null;
   }
 }
 
-export function isLikelyProductUrl(url: string | null | undefined): boolean {
-  if (!url) return false;
-  try {
-    const path = new URL(url).pathname.toLowerCase();
-    return /\/(products?|produto|p)\b/.test(path);
-  } catch {
-    return false;
+/** Cited store vs a checkout host — Pague Menos ↔ paguemenos.com.br. */
+export function checkoutHostFitsSeller(url: string, loja: string | null | undefined): boolean {
+  const seller = compactIdentity(loja);
+  if (seller.length < 5) return true;
+  const host = compactIdentity(hostFromUrl(url));
+  if (!host) return false;
+  return host.includes(seller) || seller.includes(host.replace(/combr$|com$/, ""));
+}
+
+/** Category words that must not claim the client's Shopify title (ADR-003 residual). */
+const GENERIC_CITED_IDENTITY = new Set([
+  "multivitaminico",
+  "polivitaminico",
+  "vitamina",
+  "vitaminas",
+  "vitamin",
+  "suplemento",
+  "suplementos",
+  "produto",
+  "kit",
+  "capsula",
+  "capsulas",
+]);
+
+/**
+ * Brand/product overlap without the first-word hole (`"Multivitamínico …" ⊂ client title`).
+ * Twin: `rint-app/src/lib/cited-offer.ts`.
+ */
+export function citedNameAlignsWithClient(
+  citedRaw: string | null | undefined,
+  client: Pick<ClientOfferIdentity, "name" | "brand">,
+): boolean {
+  const cited = compactIdentity(citedRaw);
+  if (cited.length < 3) return false;
+
+  const brand = compactIdentity(client.brand);
+  if (brand.length >= 3 && cited === brand) return true;
+  if (brand.length >= 4 && cited.includes(brand)) return true;
+
+  const product = compactIdentity(client.name);
+  if (product.length < 3) return false;
+  if (cited === product) return true;
+  if (GENERIC_CITED_IDENTITY.has(cited)) return false;
+  if (product.includes(cited) || cited.includes(product)) {
+    const shorter = cited.length <= product.length ? cited : product;
+    return shorter.length >= 8;
   }
+  return false;
+}
+
+/** Price of the client's own PDP — not a reseller or marketplace listing. */
+export function isClientStorefrontObject(
+  object: CitedObjectLike,
+  client: ClientOfferIdentity,
+): boolean {
+  const citedHost = hostFromUrl(object.url);
+  const clientHost = hostFromUrl(client.url);
+  return Boolean(citedHost && clientHost && citedHost === clientHost);
+}
+
+/**
+ * Same brand/SKU on a host that is not the pasted storefront (Raia, Mercado Livre).
+ * Not the shopper's own checkout — and not a rival brand.
+ * Grounding `false` still counts: ADR-003 stamps reseller objects false once the
+ * storefront is confirmed, so that 3.1.1 does not use the pharmacy price. Twin: rint-app.
+ */
+export function isClientProductElsewhereObject(
+  object: CitedObjectLike,
+  client: ClientOfferIdentity,
+): boolean {
+  if (isClientStorefrontObject(object, client)) return false;
+  const nameOk =
+    citedNameAlignsWithClient(object.marca, client) ||
+    citedNameAlignsWithClient(object.produto, client);
+  if (!nameOk) return false;
+  const citedHost = hostFromUrl(object.url);
+  const clientHost = hostFromUrl(client.url);
+  if (citedHost && clientHost && citedHost !== clientHost) return true;
+  const loja = object.loja?.trim();
+  if (!loja) return false;
+  const lojaHost = hostFromUrl(loja.includes("://") ? loja : `https://${loja}`);
+  if (lojaHost && clientHost && lojaHost === clientHost) return false;
+  return Boolean(loja);
+}
+
+/** Same shape as the wizard PDP gate — pharmacy slug, VTEX `/p`, Amazon `/dp`. Not blog, login, or Google. */
+export function isLikelyProductUrl(url: string | null | undefined): boolean {
+  const href = url?.trim() ?? "";
+  if (!href) return false;
+  return isLikelyPdpUrl(href.includes("://") ? href : `https://${href}`);
 }
 
 export function productIdentityKey(object: CitedObjectLike): string | null {
@@ -121,15 +233,151 @@ export function isClientCitedObject(
   client: ClientOfferIdentity,
   groundingConfirmedClient?: boolean,
 ): boolean {
-  const citedHost = hostFromUrl(object.url);
-  const clientHost = hostFromUrl(client.url);
-  if (citedHost && clientHost && citedHost === clientHost) return true;
+  if (isClientStorefrontObject(object, client)) return true;
   if (groundingConfirmedClient === false) return false;
 
-  const cited = foldIdentity(object.marca) || foldIdentity(object.produto);
-  if (!cited) return false;
-  const names = [client.name, client.brand].map(foldIdentity).filter(Boolean);
-  return names.some((name) => name.includes(cited) || cited.includes(name.split(" ")[0] ?? name));
+  return (
+    citedNameAlignsWithClient(object.marca, client) ||
+    citedNameAlignsWithClient(object.produto, client)
+  );
+}
+
+export type LostQueryOccupant = { name: string; href: string | null };
+
+export type LostOccupantSpeech =
+  | { kind: "one"; name: string; href: string | null }
+  | { kind: "several" }
+  | { kind: "empty" };
+
+/**
+ * Spoken occupant on Conteúdo: one SKU in every loss → name it.
+ * Two SKUs → “outros produtos” — do not elect one. Twin: rint-app.
+ */
+export function lostOccupantSpeech(occupants: LostQueryOccupant[]): LostOccupantSpeech {
+  const first = occupants[0];
+  if (!first) return { kind: "empty" };
+  if (occupants.length === 1) {
+    return { kind: "one", name: first.name, href: first.href };
+  }
+  return { kind: "several" };
+}
+
+/**
+ * Who took each question the client lost — not the job crown.
+ * One SKU in every loss → one name. Two SKUs → keep both (speech does not elect).
+ * Twin: rint-app.
+ */
+export function occupantsFromLostQueries(
+  queries: Array<{
+    cliente_foi_citado?: boolean;
+    gemini_structured?: { objetos_citados?: CitedObjectLike[] };
+  }>,
+  client: ClientOfferIdentity,
+): LostQueryOccupant[] {
+  const seen = new Set<string>();
+  const offers: LostQueryOccupant[] = [];
+  for (const query of queries) {
+    if (query.cliente_foi_citado) continue;
+    for (const object of query.gemini_structured?.objetos_citados ?? []) {
+      if (isClientCitedObject(object, client, object.grounding_confirmed_client ?? false)) {
+        continue;
+      }
+      if (isClientProductElsewhereObject(object, client)) continue;
+      const name = formatCitedOfferLabel(object.marca, object.produto) || object.loja?.trim() || "";
+      if (!name) continue;
+      const key = compactIdentity(name);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      offers.push({ name, href: object.url?.trim() || null });
+      break;
+    }
+  }
+  return offers;
+}
+
+const VS_RIVAL_CAP = 2;
+
+function queryNamesClient(text: string, client: ClientOfferIdentity): boolean {
+  const hayCompact = compactIdentity(text);
+  const hayFold = ` ${foldIdentity(text)} `;
+  const brandCompact = compactIdentity(client.brand);
+  const nameCompact = compactIdentity(client.name);
+  if (brandCompact.length >= 8 && hayCompact.includes(brandCompact)) return true;
+  if (nameCompact.length >= 8 && hayCompact.includes(nameCompact)) return true;
+  const brandFold = foldIdentity(client.brand);
+  if (brandFold.length >= 4 && hayFold.includes(` ${brandFold} `)) return true;
+  const nameFold = foldIdentity(client.name);
+  if (nameFold.length >= 4 && hayFold.includes(` ${nameFold} `)) return true;
+  return false;
+}
+
+function rivalObjectKey(object: CitedObjectLike, client: ClientOfferIdentity): string | null {
+  if (isClientCitedObject(object, client, object.grounding_confirmed_client ?? false)) {
+    return null;
+  }
+  if (isClientProductElsewhereObject(object, client)) return null;
+  return productIdentityKey(object);
+}
+
+/**
+ * Faces on the product vs. Clear crown → one. Else prefer SKUs that took
+ * category (no-name) losses, cap 2. Never empty the vs only because two were cited.
+ * Twin: rint-app.
+ */
+export function vsRivalProductKeys(input: {
+  client: ClientOfferIdentity;
+  queries: Array<{
+    text?: string | null;
+    cited?: boolean;
+    objects?: CitedObjectLike[] | null;
+  }>;
+  candidates: OfferCandidate[];
+  clearProductKey?: string | null;
+}): string[] {
+  const clear = input.clearProductKey?.trim() || "";
+  if (clear) return [clear];
+  const categoryCounts = new Map<string, number>();
+  const seenOrder: string[] = [];
+  for (const query of input.queries) {
+    if (query.cited === true) continue;
+    const text = query.text?.trim() ?? "";
+    if (text && queryNamesClient(text, input.client)) continue;
+    const seen = new Set<string>();
+    for (const object of query.objects ?? []) {
+      const key = rivalObjectKey(object, input.client);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      if (!categoryCounts.has(key)) seenOrder.push(key);
+      categoryCounts.set(key, (categoryCounts.get(key) ?? 0) + 1);
+    }
+  }
+  const candidateCount = new Map(input.candidates.map((row) => [row.productKey, row.count]));
+  const rankedCategory = [...categoryCounts.entries()].sort((a, b) => {
+    const byCount = b[1] - a[1];
+    if (byCount !== 0) return byCount;
+    const byCandidate = (candidateCount.get(b[0]) ?? 0) - (candidateCount.get(a[0]) ?? 0);
+    if (byCandidate !== 0) return byCandidate;
+    return seenOrder.indexOf(a[0]) - seenOrder.indexOf(b[0]);
+  });
+  if (rankedCategory.length > 0) {
+    return rankedCategory.slice(0, VS_RIVAL_CAP).map(([key]) => key);
+  }
+  return input.candidates
+    .slice(0, VS_RIVAL_CAP)
+    .map((row) => row.productKey)
+    .filter(Boolean);
+}
+
+/** A cited SKU the shopper can open — a PDP URL, not a blog, busca, login wall, or Google redirect. */
+export function citedObjectHasCheckout(object: CitedObjectLike): boolean {
+  return Boolean(canonicalProductUrl(object.url));
+}
+
+/** Keep vs faces that have a checkout. Empty means the vs stays empty — never fall back to a blog name. */
+export function vsRivalPaintKeys(keys: string[], objects: CitedObjectLike[]): string[] {
+  return keys.filter((key) =>
+    objects.some((object) => productIdentityKey(object) === key && citedObjectHasCheckout(object)),
+  );
 }
 
 function modeLabel(counts: Map<string, { label: string; n: number }>): string | null {
@@ -149,7 +397,7 @@ function bump(map: Map<string, { label: string; n: number }>, label: string | nu
   map.set(key, { label: prev?.label ?? trimmed, n: (prev?.n ?? 0) + 1 });
 }
 
-function factsFromMentions(
+export function offerFactsFromMentions(
   mentions: CitedObjectLike[],
 ): Pick<
   CrownedOffer,
@@ -194,7 +442,7 @@ function factsFromMentions(
   const seller = modeLabel(sellers);
   return {
     seller,
-    sellerHost: hostFromUrl(urls[0] ?? null) ?? (seller && seller.includes(".") ? seller : null),
+    sellerHost: hostFromUrl(urls[0] ?? null) ?? (seller?.includes(".") ? seller : null),
     url: urls[0] ?? null,
     preco,
     moeda,
@@ -297,7 +545,7 @@ export function crownCompetitorSku(input: {
     marca: row.marca,
     produto: row.produto,
     count: row.count,
-    seller: factsFromMentions(row.mentions).seller,
+    seller: offerFactsFromMentions(row.mentions).seller,
   }));
 
   const stores = [...storeHints.values()]
@@ -310,7 +558,7 @@ export function crownCompetitorSku(input: {
   const tied = Boolean(top && second && second.count === top.count);
 
   if (majority && !tied && top) {
-    const facts = factsFromMentions(top.mentions);
+    const facts = offerFactsFromMentions(top.mentions);
     return {
       confidence: "clear",
       productKey: top.productKey,
@@ -355,14 +603,28 @@ export function crownCompetitorSku(input: {
 
 export function missingOfferCriticals(
   offer: CrownedOffer,
-): Array<"produto" | "loja" | "preco" | "prazo" | "avaliacao"> {
-  const missing: Array<"produto" | "loja" | "preco" | "prazo" | "avaliacao"> = [];
+): Array<"produto" | "loja" | "preco" | "prazo" | "avaliacao" | "checkout"> {
+  const missing: Array<"produto" | "loja" | "preco" | "prazo" | "avaliacao" | "checkout"> = [];
   if (!offer.produto?.trim()) missing.push("produto");
   if (!offer.seller?.trim()) missing.push("loja");
+  if (!isLikelyProductUrl(offer.url)) missing.push("checkout");
   if (offer.preco == null) missing.push("preco");
   if (!offer.prazo_entrega?.trim()) missing.push("prazo");
   if (!offer.avaliacao?.trim()) missing.push("avaliacao");
   return missing;
+}
+
+/** One vs face still needs a checkout URL — blogs with a price are not a PDP. */
+export function planCitedFaceFollowUp(object: CitedObjectLike): CitedOfferFollowUpPlan | null {
+  const produto = object.produto?.trim();
+  if (!produto) return null;
+  if (citedObjectHasCheckout(object)) return null;
+  const named = formatCitedOfferLabel(object.marca, produto);
+  const at = object.loja?.trim() ? ` na ${object.loja.trim()}` : "";
+  return {
+    reason: "missing_facts",
+    query: `Quero comprar ${named}${at} agora. Não me indique artigo, ranking, YouTube, blog nem página de busca. Qual é o link direto da página desse produto numa loja (farmácia, marketplace ou site da marca)? Diga a loja, o preço nessa página, a avaliação dos clientes e o prazo de entrega.`,
+  };
 }
 
 export function planCitedOfferFollowUp(offer: CrownedOffer): CitedOfferFollowUpPlan | null {
@@ -380,6 +642,9 @@ export function planCitedOfferFollowUp(offer: CrownedOffer): CitedOfferFollowUpP
   const named = [offer.marca, offer.produto].filter(Boolean).join(" ").trim() || "esse produto";
   const at = offer.seller ? ` na ${offer.seller}` : "";
   const asks: string[] = [];
+  if (missing.includes("checkout")) {
+    asks.push("qual é o link direto da página do produto na loja (não artigo, ranking nem busca)");
+  }
   if (missing.includes("produto")) asks.push("qual é o produto exato");
   if (missing.includes("loja")) asks.push("onde vende");
   if (missing.includes("preco")) asks.push("quanto custa");
@@ -388,7 +653,7 @@ export function planCitedOfferFollowUp(offer: CrownedOffer): CitedOfferFollowUpP
   return {
     reason: missing.includes("produto")
       ? "missing_product"
-      : missing.includes("loja")
+      : missing.includes("loja") || missing.includes("checkout")
         ? "missing_seller"
         : "missing_facts",
     query: `Sobre ${named}${at}: ${asks.join(", ")}?`,

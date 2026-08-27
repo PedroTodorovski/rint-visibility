@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-
+import { indexPdpHtml } from "../src/lib/pdp-surface-index.js";
 import {
   catalogFoundationFromFields,
   formulateTrackLlmFirstAction,
@@ -36,19 +36,14 @@ describe("formulateTrackLlmFirstAction", () => {
     expect(brief.theme).toBe("suplemento de greens no Brasil, como alternativa ao que a IA citou");
     expect(foldEqualsAnyQuery(brief.theme, DAILY_QUERIES)).toBe(false);
     expect(brief.page_type).toBe("landing_editorial_comparativa");
-    expect(brief.surface).toBe("nova_landing_editorial_no_dominio_nao_pdp");
+    expect(brief.surface).toBe("pdp_medida");
     expect(brief.target_url).toBeNull();
     expect(brief.first_action).not.toContain("Melhor suplemento de greens no Brasil");
     expect(brief.first_action).not.toContain("Escreva no seu site um texto");
-    expect(brief.first_action).toContain("landing editorial/comparativa");
-    expect(brief.first_action).toContain("URL própria");
-    expect(brief.first_action).toContain("fora da PDP");
-    expect(brief.first_action).toContain("link para Nuture Daily Boost");
-    expect(brief.first_action).toContain("59 vitaminas");
-    expect(brief.first_action).toContain("2 scoops");
-    expect(brief.first_action).toContain("Certificação NSF");
-    expect(brief.first_action).toContain("review");
+    expect(brief.first_action).not.toMatch(/crie uma (página|landing)/i);
+    expect(brief.first_action).toContain("Falta a IA enxergar");
     expect(brief.grounding_note).toBe("review_not_listing");
+    expect(brief.week_reason).toBe("article");
   });
 
   it("formulates D3 from the five-query set, never pasting a wizard query", () => {
@@ -64,10 +59,9 @@ describe("formulateTrackLlmFirstAction", () => {
     expect(brief.theme).toBe("Vitamina D3 K2 em gotas no Brasil");
     expect(foldEqualsAnyQuery(brief.theme, D3_QUERIES)).toBe(false);
     expect(brief.first_action).not.toContain("Vitamina D3 K2 em gotas com boa avaliação");
-    expect(brief.first_action).toContain("landing editorial/comparativa");
-    expect(brief.first_action).toContain("link para Vitamina D3K2");
-    expect(brief.first_action).toContain("2.000 UI de D3");
-    expect(brief.first_action).toContain("Selo vegan");
+    expect(brief.surface).toBe("pdp_medida");
+    expect(brief.first_action).not.toMatch(/crie uma (página|landing)/i);
+    expect(brief.first_action).toContain("Falta a IA enxergar");
   });
 
   it("chooses to improve an existing owned content URL when Gemini already read it", () => {
@@ -89,9 +83,9 @@ describe("formulateTrackLlmFirstAction", () => {
     expect(brief.target_url_source).toBe("search_console");
     expect(brief.existing_content_surface).toBe("owned_content_directory");
     expect(brief.search_console_coverage).toBe("covered");
-    expect(brief.first_action).toContain("Melhore esta landing editorial/comparativa");
-    expect(brief.first_action).toContain("https://nuture.com.br/blog/greens-em-po");
-    expect(brief.first_action).toContain("Reforce o link para Nuture Daily Boost");
+    expect(brief.first_action).toContain("Melhore esta página já existente");
+    expect(brief.first_action).not.toContain("https://nuture.com.br/blog/greens-em-po");
+    expect(brief.work_items?.map((item) => item.id)).toEqual(["improve_editorial"]);
   });
 
   it("falls back to the SKU name when the set has no shared product phrase", () => {
@@ -116,6 +110,7 @@ describe("formulateTrackLlmFirstAction", () => {
     });
 
     expect(brief.catalog_first).toBe(true);
+    expect(brief.week_reason).toBe("catalog_first");
     expect(brief.surface).toBe("cadastro_shopify_antes_da_landing");
     expect(brief.target_url).toBe("https://nuture.com.br/products/nuture-daily-boost");
     expect(brief.target_url_source).toBeNull();
@@ -124,9 +119,9 @@ describe("formulateTrackLlmFirstAction", () => {
     expect(brief.first_action).toContain("descrição e os atributos técnicos");
     expect(brief.first_action).toContain("cadastro é a base");
     expect(brief.first_action).not.toContain("Melhore esta landing editorial/comparativa");
-    expect(brief.first_action).toContain("Com o cadastro em ordem");
-    expect(brief.first_action).toContain("melhore o guia");
+    expect(brief.first_action).not.toContain("Com o cadastro em ordem");
     expect(brief.first_action).not.toContain("nesta página");
+    expect(brief.work_items?.map((item) => item.id)).toEqual(["catalog_fill"]);
   });
 
   it("does not start at Shopify when the cited object is incoherent, even if the catalog is thin", () => {
@@ -146,8 +141,115 @@ describe("formulateTrackLlmFirstAction", () => {
 
     expect(brief.catalog_first).toBe(false);
     expect(brief.incoherent).toBe(true);
+    expect(brief.week_reason).toBe("incoherent");
     expect(brief.first_action).not.toContain("Complete no Shopify");
-    expect(brief.first_action).toContain("https://nuture.com.br/blog/greens-em-po");
+    expect(brief.first_action).toContain("não batem com a loja");
+    expect(brief.target_url).toBe("https://nuture.com.br/products/nuture-daily-boost");
+    expect(brief.surface).toBe("pdp_medida");
+    expect(brief.work_items?.map((item) => item.id)).toEqual(["price_brand"]);
+  });
+
+  it("sets category_partial when the query set is a 1–4/N category miss", () => {
+    const brief = formulateTrackLlmFirstAction({
+      skuName: "Nuture Daily Boost",
+      brand: "Nuture",
+      queryTexts: DAILY_QUERIES,
+      unusedOwnAttrs: ["59 vitaminas, minerais, bioativos e vegetais"],
+      skipAttrs: ["Certificação NSF"],
+      readReviewOrRivalStore: false,
+      existingContentUrl: "https://nuture.com.br/blog/greens-em-po",
+      existingContentSurface: "owned_content_directory",
+      citationClient: 3,
+      citationTotal: 5,
+      querySplit: {
+        categoryCited: 1,
+        categoryTotal: 3,
+        namedCited: 2,
+        namedTotal: 2,
+      },
+    });
+
+    expect(brief.week_reason).toBe("category_partial");
+    expect(brief.incoherent).toBe(false);
+  });
+
+  it("queues Bari PDP gaps instead of inventing a landing", () => {
+    const index = indexPdpHtml(`
+<title>Complete Bari Multi | Multivitamínico Bariátrico</title>
+<meta property="og:title" content="Complete Bari Multi | Multivitamínico Bariátrico">
+<h1>Multivitamínico Para Usuários de Caneta ou Bariátrico | 23 Nutrientes</h1>
+<p>Frete grátis acima de R$299.</p>
+<video></video>
+<h3>Quem usa caneta emagrecedora precisa tomar multivitaminico?</h3>
+<script type="application/ld+json">
+{"@type":"Product","name":"Multi","brand":{"@type":"Brand","name":"CompleteBari"},"description":"Para quem usa canetas.","offers":{"price":"129.90"}}
+</script>
+`);
+    const brief = formulateTrackLlmFirstAction({
+      skuName: "Multivitamínico Para Usuários de Bypass, Sleeve e Distal | 23 Nutrientes",
+      brand: "Complete Bari",
+      queryTexts: [
+        "melhor multivitamínico para caneta emagrecedora",
+        "multivitamínico bariátrico",
+        "Complete Bari Multi vale a pena",
+      ],
+      unusedOwnAttrs: ["Multi Unitário"],
+      skipAttrs: [],
+      readReviewOrRivalStore: false,
+      productUrl: "https://completebari.com.br/products/multivitaminico-complete-bari-multi",
+      pdpSurface: index,
+      lostQueryTexts: ["melhor multivitamínico para caneta emagrecedora"],
+      citationClient: 3,
+      citationTotal: 5,
+      querySplit: {
+        categoryCited: 1,
+        categoryTotal: 3,
+        namedCited: 2,
+        namedTotal: 2,
+      },
+    });
+
+    expect(brief.surface).toBe("pdp_medida");
+    expect(brief.target_url).toBe(
+      "https://completebari.com.br/products/multivitaminico-complete-bari-multi",
+    );
+    expect(brief.first_action).toContain("A sua página do produto já existe");
+    expect(brief.first_action).not.toMatch(/crie uma (página|landing)/i);
+    expect(brief.first_action).not.toContain("23 Nutrientes");
+    expect(brief.work_items?.[0]?.id).toBe("search_title");
+    expect(brief.work_items?.map((item) => item.id)).toEqual(
+      expect.arrayContaining(["search_title", "faq_schema", "shipping_schema", "video_schema"]),
+    );
+    expect(brief.already_ok?.some((item) => item.includes("Título na página"))).toBe(true);
+  });
+
+  it("points at the measured blog index when the PDP already finds you by name", () => {
+    const brief = formulateTrackLlmFirstAction({
+      skuName: "Nuture Daily Boost",
+      brand: "Nuture",
+      queryTexts: DAILY_QUERIES,
+      unusedOwnAttrs: ["59 vitaminas, minerais, bioativos e vegetais"],
+      skipAttrs: ["Certificação NSF"],
+      readReviewOrRivalStore: false,
+      productUrl: "https://nuture.com.br/products/nuture-daily-boost",
+      blogIndexUrl: "https://nuture.com.br/blog",
+      storefrontAccess: "open",
+      citationClient: 2,
+      citationTotal: 5,
+      querySplit: {
+        categoryCited: 0,
+        categoryTotal: 3,
+        namedCited: 2,
+        namedTotal: 2,
+      },
+    });
+
+    expect(brief.surface).toBe("blog_indice_existente");
+    expect(brief.pdp_ready).toBe(true);
+    expect(brief.target_url).toBe("https://nuture.com.br/blog");
+    expect(brief.work_items?.map((item) => item.id)).toEqual(["blog_index"]);
+    expect(brief.first_action).toContain("Crie um conteúdo neste blog");
+    expect(brief.first_action).not.toMatch(/crie uma (página|landing)/i);
   });
 });
 

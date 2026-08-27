@@ -4,6 +4,8 @@ export type RevenueGapAssumptions = {
   sessoesAi?: number;
   /** Top-K AI-referral landing paths. Supporting evidence — does not drive Conta 1 or first_action. */
   sessoesAiLandings?: Array<{ path: string; sessions: number }>;
+  /** GA4 sessionSource rows that made up `sessoesAi`. Mosaic splits Gemini / ChatGPT / Perplexity. */
+  sessoesAiBySource?: Array<{ source: string; sessions: number }>;
   citationClient: number;
   citationTotal: number;
   citationCompetitor: number;

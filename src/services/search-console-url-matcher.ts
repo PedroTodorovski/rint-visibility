@@ -191,3 +191,55 @@ export function selectSearchConsoleUrl(input: {
     metrics: winner.metrics,
   };
 }
+
+const INDEX_ROOTS = new Set([
+  "blog",
+  "blogs",
+  "pages",
+  "guias",
+  "guides",
+  "conteudo",
+  "conteudos",
+  "learn",
+  "resources",
+]);
+
+export function isOwnedContentIndexPath(pathname: string): boolean {
+  const parts = pathname
+    .split("/")
+    .filter(Boolean)
+    .map((part) => part.toLowerCase());
+  if (parts.length === 1) return INDEX_ROOTS.has(parts[0] ?? "");
+  return parts.length === 2 && parts[0] === "blogs";
+}
+
+export function selectSearchConsoleBlogIndex(input: {
+  candidates: SearchConsoleOwnedContentCandidate[];
+  surfaceConfig: BrandSurfaceConfig;
+}): SearchConsoleUrlMatch | null {
+  const ranked = input.candidates
+    .map((candidate) => {
+      const surface = classifyBrandSurface(candidate.url, input.surfaceConfig);
+      if (
+        surface.kind !== "owned_content_directory" &&
+        surface.kind !== "owned_content_subdomain"
+      ) {
+        return null;
+      }
+      if (!isOwnedContentIndexPath(surface.path)) return null;
+      const metrics = candidateMetrics(candidate);
+      return { candidate, surface, metrics, score: metrics.impressions ?? 0 };
+    })
+    .filter((row): row is NonNullable<typeof row> => Boolean(row))
+    .sort((a, b) => b.score - a.score);
+  const winner = ranked[0];
+  if (!winner) return null;
+  return {
+    candidate: winner.candidate,
+    surface: winner.surface,
+    score: winner.score,
+    confidence: "medium",
+    matched_queries: candidateQueries(winner.candidate).slice(0, 5),
+    metrics: winner.metrics,
+  };
+}

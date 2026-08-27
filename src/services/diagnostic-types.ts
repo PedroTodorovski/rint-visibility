@@ -5,6 +5,7 @@ import type {
 } from "../lib/citation-gold.js";
 import type { GeminiStructuredOutput } from "../lib/llm/gemini-structured.js";
 import type { LlmProviderId } from "../lib/llm/types.js";
+import type { PdpSurfaceIndex } from "../lib/pdp-surface-index.js";
 
 /**
  * Probe depth — not a commercial plan name.
@@ -77,6 +78,11 @@ export type ShopifyProductSnapshot = {
       thin: boolean;
       gaps: Array<"attributes" | "description" | "physical" | "image_alt">;
     };
+    /**
+     * Derived flags from the pontual public GET. Never HTML.
+     * Contract: rint-app/docs/PDP-SURFACE-INDEX.md
+     */
+    pdpSurface?: PdpSurfaceIndex;
     /** Brand-owned surfaces known at diagnosis time. Do not infer every subdomain as owned. */
     ownedSurfaces?: {
       storefrontHosts?: string[];

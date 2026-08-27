@@ -1,13 +1,24 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  checkoutHostFitsSeller,
+  compactIdentity,
   crownCompetitorSku,
+  formatCitedOfferLabel,
   groundingHostsFromUrls,
   isClientCitedObject,
+  isClientProductElsewhereObject,
+  isClientStorefrontObject,
+  isLikelyProductUrl,
+  lostOccupantSpeech,
   mergeFollowUpCitedObjects,
+  occupantsFromLostQueries,
+  planCitedFaceFollowUp,
   planCitedOfferFollowUp,
   productIdentityKey,
   sellerFromObject,
+  vsRivalPaintKeys,
+  vsRivalProductKeys,
 } from "../src/lib/cited-offer.js";
 
 const client = {
@@ -92,6 +103,19 @@ describe("cited offer crown", () => {
       objectsByQuery: [[ag1], [ag1]],
     });
     expect(planCitedOfferFollowUp(crown)).toBeNull();
+  });
+
+  it("asks for the checkout page when Gemini named a SKU with price but no PDP", () => {
+    const plan = planCitedFaceFollowUp({
+      marca: "Revigoran",
+      produto: "A-Z Multivitamínico Completo",
+      preco: 49.9,
+      avaliacao: "4.4 de 5 estrelas",
+      url: null,
+    });
+    expect(plan?.reason).toBe("missing_facts");
+    expect(plan?.query).toMatch(/link direto da página/);
+    expect(planCitedFaceFollowUp(ag1)).toBeNull();
   });
 
   it("does not treat a review host as the seller", () => {
@@ -180,6 +204,43 @@ describe("isClientCitedObject — grounding precedence (ADR-003)", () => {
     const clientHostObject = { url: "https://nuture.com.br/products/nuture-daily-boost" };
     expect(isClientCitedObject(clientHostObject, client, false)).toBe(true);
   });
+
+  it("does not treat a Mercado Livre listing as the client because both titles start with Multivitamínico", () => {
+    const completeBari = {
+      name: "Multivitamínico Para Usuários de Caneta ou Bariátrico | 23 Nutrientes",
+      brand: "CompleteBari",
+      url: "https://completebari.com.br/products/multivitaminico-complete-bari-multi",
+    };
+    expect(
+      isClientCitedObject(
+        {
+          produto: "Multivitamínico Beleza Saúde Body Bari Pós-Cirurgia Bariátrica",
+          loja: "Mercado Livre",
+          preco: 71.01,
+        },
+        completeBari,
+        true,
+      ),
+    ).toBe(false);
+    expect(compactIdentity("Complete Bari")).toBe(compactIdentity("CompleteBari"));
+  });
+
+  it("treats the same brand on another host as the product elsewhere, not the storefront", () => {
+    const completeBari = {
+      name: "Multivitamínico Complete Bari Multi",
+      brand: "Complete Bari",
+      url: "https://completebari.com.br/products/multivitaminico-complete-bari-multi",
+    };
+    const raia = {
+      marca: "Complete Bari",
+      url: "https://www.drogaraia.com.br/complete-bari",
+    };
+    expect(isClientStorefrontObject(raia, completeBari)).toBe(false);
+    expect(isClientProductElsewhereObject(raia, completeBari)).toBe(true);
+    expect(
+      isClientProductElsewhereObject({ ...raia, grounding_confirmed_client: false }, completeBari),
+    ).toBe(true);
+  });
 });
 
 describe("crownCompetitorSku — grounding precedence (ADR-003)", () => {
@@ -206,5 +267,214 @@ describe("crownCompetitorSku — grounding precedence (ADR-003)", () => {
       objectsByQuery: [[clientObject], [clientObject]],
     });
     expect(crownExcludedAsClient.confidence).toBe("empty");
+  });
+});
+
+describe("occupantsFromLostQueries", () => {
+  it("lists who took each lost query, not the job crown", () => {
+    expect(
+      occupantsFromLostQueries(
+        [
+          {
+            cliente_foi_citado: false,
+            gemini_structured: {
+              objetos_citados: [
+                {
+                  marca: "Biostévi Nutrition",
+                  produto: "Biostévi",
+                  url: "https://drogaraia.com.br/biostevi",
+                },
+              ],
+            },
+          },
+          {
+            cliente_foi_citado: false,
+            gemini_structured: {
+              objetos_citados: [
+                {
+                  marca: "Centrum",
+                  produto: "Centrum Bariátrico",
+                  url: "https://beltnutrition.com.br/centrum",
+                },
+              ],
+            },
+          },
+          {
+            cliente_foi_citado: true,
+            gemini_structured: {
+              objetos_citados: [{ marca: "Nuture", produto: "Daily Boost", url: client.url }],
+            },
+          },
+        ],
+        client,
+      ),
+    ).toEqual([
+      { name: "Biostévi Nutrition", href: "https://drogaraia.com.br/biostevi" },
+      { name: "Centrum Bariátrico", href: "https://beltnutrition.com.br/centrum" },
+    ]);
+  });
+
+  it("does not elect a spoken name when two SKUs took the losses", () => {
+    expect(
+      lostOccupantSpeech([
+        { name: "Biostévi Nutrition", href: "https://drogaraia.com.br/biostevi" },
+        { name: "Centrum Bariátrico", href: "https://beltnutrition.com.br/centrum" },
+      ]),
+    ).toEqual({ kind: "several" });
+    expect(
+      lostOccupantSpeech([
+        { name: "Centrum Bariátrico", href: "https://beltnutrition.com.br/centrum" },
+      ]),
+    ).toEqual({
+      kind: "one",
+      name: "Centrum Bariátrico",
+      href: "https://beltnutrition.com.br/centrum",
+    });
+  });
+
+  it("folds Centrum Centrum Bariátrico into one spoken name", () => {
+    expect(formatCitedOfferLabel("Centrum", "Centrum Bariátrico")).toBe("Centrum Bariátrico");
+  });
+});
+
+describe("vsRivalProductKeys", () => {
+  const bari = {
+    name: "Multivitamínico Complete Bari Multi",
+    brand: "CompleteBari",
+    url: "https://completebari.com.br/products/multi",
+  };
+  const centrum = { marca: "Centrum", produto: "Centrum Bariátrico" };
+  const biostevi = { marca: "Biostévi", produto: "Nutrition" };
+  const bloom = { marca: "Bloom", produto: "Greens" };
+
+  it("shows the two category-loss SKUs instead of an empty empate", () => {
+    const keys = vsRivalProductKeys({
+      client: bari,
+      queries: [
+        { text: "melhor vitamina bariátrica", cited: false, objects: [centrum] },
+        { text: "multivitamínico para bariátrico", cited: false, objects: [biostevi] },
+        { text: "Complete Bari vale a pena", cited: false, objects: [bloom] },
+      ],
+      candidates: [
+        { productKey: "bloom|greens", marca: "Bloom", produto: "Greens", count: 1, seller: null },
+        {
+          productKey: "centrum|centrum bariatrico",
+          marca: "Centrum",
+          produto: "Centrum Bariátrico",
+          count: 1,
+          seller: null,
+        },
+        {
+          productKey: "biostevi|nutrition",
+          marca: "Biostévi",
+          produto: "Nutrition",
+          count: 1,
+          seller: null,
+        },
+      ],
+    });
+    expect(keys).toHaveLength(2);
+    expect(keys).toContain("centrum|centrum bariatrico");
+    expect(keys).toContain("biostevi|nutrition");
+    expect(keys).not.toContain("bloom|greens");
+  });
+});
+
+describe("checkoutHostFitsSeller", () => {
+  it("ties the cited store to that host, not another pharmacy", () => {
+    expect(checkoutHostFitsSeller("https://www.paguemenos.com.br/kit-flora/p", "Pague Menos")).toBe(
+      true,
+    );
+    expect(checkoutHostFitsSeller("https://www.extrafarma.com.br/kit-flora/p", "Pague Menos")).toBe(
+      false,
+    );
+  });
+});
+
+describe("vsRivalPaintKeys", () => {
+  it("drops a Magalu search face that has no checkout fact", () => {
+    const keys = vsRivalPaintKeys(
+      ["centrum|centrum bariatrico", "flora nativa|multivitaminico bariatrico"],
+      [
+        {
+          marca: "Centrum",
+          produto: "Centrum Bariátrico",
+          url: "https://www.magazineluiza.com.br/busca/multivitaminico+bariatrico/",
+          loja: "Magazine Luiza",
+          qualidade: "bom custo-benefício",
+        },
+        {
+          marca: "Flora Nativa",
+          produto: "Multivitamínico Bariátrico",
+          url: "https://www.paguemenos.com.br/kit-flora/p",
+          preco: 39.9,
+          imagem_url: "https://paguemenos.vteximg.com.br/arquivos/ids/1/flora.jpg",
+        },
+      ],
+    );
+    expect(keys).toEqual(["flora nativa|multivitaminico bariatrico"]);
+  });
+
+  it("does not fall back to blog names when no face has a PDP", () => {
+    const keys = vsRivalPaintKeys(
+      ["revigoran|a z multivitaminico completo", "nutrify|multi all"],
+      [
+        {
+          marca: "Revigoran",
+          produto: "A-Z Multivitamínico Completo",
+          preco: 49.9,
+          avaliacao: "4.4 de 5 estrelas",
+          url: null,
+        },
+        {
+          marca: "Nutrify",
+          produto: "Multi All",
+          preco: 100,
+          avaliacao: "4.9 (752 opiniões)",
+          url: null,
+        },
+      ],
+    );
+    expect(keys).toEqual([]);
+  });
+
+  it("does not treat a Mercado Livre login wall as checkout", () => {
+    const keys = vsRivalPaintKeys(
+      ["lavitan|lavitan az mulher"],
+      [
+        {
+          marca: "Lavitan",
+          produto: "Lavitan AZ Mulher",
+          loja: "Mercado Livre",
+          url: "https://www.mercadolivre.com.br/gz/account-verification?go=https%3A%2F%2Fwww.mercadolivre.com.br%2Flavitan-super-formula-a-z-mulher-c-60-comprimidos%2Fp%2FMLB20000000195000000000000000000000",
+        },
+      ],
+    );
+    expect(keys).toEqual([]);
+  });
+});
+
+describe("isLikelyProductUrl", () => {
+  it("accepts pharmacy slugs, VTEX /p and Amazon /dp, and refuses blog and Google redirects", () => {
+    expect(isLikelyProductUrl("https://barisaude.com.br/barimax-multi-3-meses")).toBe(true);
+    expect(isLikelyProductUrl("https://www.drogariasaopaulo.com.br/centrum-bariatrico/p")).toBe(
+      true,
+    );
+    expect(isLikelyProductUrl("https://www.amazon.com.br/dp/B0EXAMPLE")).toBe(true);
+    expect(isLikelyProductUrl("https://drinkag1.com/products/ag1")).toBe(true);
+    expect(isLikelyProductUrl("https://loja.com/blog/post")).toBe(false);
+    expect(
+      isLikelyProductUrl("https://vertexaisearch.cloud.google.com/grounding-api-redirect/abc"),
+    ).toBe(false);
+    expect(
+      isLikelyProductUrl(
+        "https://www.mercadolivre.com.br/gz/account-verification?go=https%3A%2F%2Flista.mercadolivre.com.br%2Flavitan-az-mulher",
+      ),
+    ).toBe(false);
+    expect(
+      isLikelyProductUrl(
+        "https://www.mercadolivre.com.br/lavitan-super-formula-a-z-mulher-c-60-comprimidos/p/MLB46241161",
+      ),
+    ).toBe(true);
   });
 });

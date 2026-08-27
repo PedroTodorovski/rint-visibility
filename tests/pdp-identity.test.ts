@@ -25,6 +25,19 @@ describe("parsePublicPdpHtml", () => {
     expect(identity.attributes).toEqual(expect.arrayContaining(["linho", "Largura: 220 cm"]));
   });
 
+  it("reads aggregateRating onto Avaliação without inventing a score", () => {
+    const identity = parsePublicPdpHtml(`
+      <script type="application/ld+json">
+        {"@type":"Product","name":"Complete Bari Multi",
+         "offers":{"price":"129.90","priceCurrency":"BRL"},
+         "aggregateRating":{"@type":"AggregateRating","ratingValue":"4.8","reviewCount":"23"}}
+      </script>
+    `);
+    expect(identity.rating).toBe("4.8 (23)");
+    expect(identity.attributes).toContain("Avaliação: 4.8 (23)");
+    expect(identity.currentPrice).toBe(129.9);
+  });
+
   it("prefers JSON-LD image over og:image", () => {
     const identity = parsePublicPdpHtml(`
       <meta property="og:image" content="https://cdn.loja.com/og.jpg">
@@ -180,9 +193,16 @@ describe("parsePublicPdpHtml", () => {
     const identity = parsePublicPdpHtml(`
       <div itemscope itemtype="https://schema.org/Product">
         <span itemprop="name">Microdata SKU</span>
+        <img itemprop="image" src="https://cdn.example/micro.jpg">
+        <meta itemprop="price" content="71.90">
+        <meta itemprop="priceCurrency" content="BRL">
       </div>
     `);
     expect(identity.hasJsonLd).toBe(true);
+    expect(identity.name).toBe("Microdata SKU");
+    expect(identity.image).toBe("https://cdn.example/micro.jpg");
+    expect(identity.currentPrice).toBe(71.9);
+    expect(identity.currency).toBe("BRL");
   });
 
   it("flags password walls so callers do not claim schema absent", () => {

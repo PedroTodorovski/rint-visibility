@@ -2,6 +2,8 @@
 
 > Documento didático, sem jargão técnico. Objetivo: qualquer pessoa consegue abrir este arquivo e entender, do início ao fim, como o motor decide o que mostrar para o fundador — desde o clique que pede um diagnóstico até a única resposta final que ele recebe.
 >
+> Inclui **quem** a IA mostrou: sua loja, o seu produto noutro site, ou outra marca. Os dois primeiros podem aparecer **na mesma pergunta** — o selo continua Sua loja e a segunda linha ainda fala da farmácia. Misturar os papéis faz o fundador pensar demais — e ainda ler “preço errado” quando a IA só mandou comprar noutro checkout.
+>
 > Este mapa descreve fielmente o que o código faz hoje. Cada bifurcação aqui corresponde a uma condição real no motor (`rint-visibility`). Para a versão técnica completa (nomes de função, linhas de código, casos de teste), ver [`rint-app/docs/DIAGNOSIS-DOMINANT.md`](../../rint-app/docs/DIAGNOSIS-DOMINANT.md) e [`GEMINI-PROBE-METHODOLOGY.md`](./GEMINI-PROBE-METHODOLOGY.md).
 
 ---
@@ -19,8 +21,11 @@ Alguns termos técnicos viram nome de negócio aqui. Tabela de tradução:
 | No código | Neste mapa | O que é de verdade |
 |---|---|---|
 | SKU | Produto | Um produto específico sendo testado — uma URL de página de produto |
-| Coerência | "A resposta bate com a loja" | Se preço/marca que a IA citou batem com o cadastro real |
-| Citação / "cliente foi citado" | "A IA te citou como fonte" | A loja apareceu como referência na resposta |
+| Coerência | "A resposta bate com a loja" | Se preço/marca **da sua página** batem com o cadastro. Preço noutro site não entra |
+| Citação / "cliente foi citado" | "A IA apontou para a sua loja" | O site da URL que você colou apareceu nas fontes |
+| Seu produto em outro site | O mesmo produto, noutro site | Farmácia, Mercado Livre, etc. — ainda é o seu SKU, não é a sua loja |
+| Os dois na mesma pergunta | Sua loja **e** o SKU noutro site | Selo Sua loja; a segunda linha ainda fala da farmácia. Não é “bate com a loja” |
+| Ocupante | Outra marca | Quem a IA escolheu no seu lugar |
 | Grounding | "As fontes que a IA consultou" | Os links que o Google Search (usado pela IA) realmente leu |
 | JSON-LD / schema | "Ficha técnica legível por máquina" | Um bloco de dados estruturados na página que a IA lê direto, sem precisar interpretar texto solto |
 | Retrato do dia (day photo) | "Aproveitar o que já foi medido hoje" | Cache que evita perguntar a mesma coisa duas vezes no mesmo dia |
@@ -84,7 +89,7 @@ flowchart TD
 Duas ideias importantes aqui:
 
 - **"Impressão digital" do dia** — se o fundador roda o diagnóstico duas vezes no mesmo dia (fuso de São Paulo) com exatamente o mesmo conjunto de produtos e perguntas ativas, o motor não gasta uma chamada nova: devolve o resultado que já existe. Uma pergunta nova ou um produto novo já muda a impressão digital e libera uma rodada nova.
-- **Página não pode ser qualquer link.** O motor recusa colar a home da loja, um vídeo, uma rede social, um blog, uma notícia, uma página de busca ou de categoria como se fosse a página de um produto — mesmo que o texto pareça convincente, se o link não parece a página de um produto específico, o diagnóstico nem começa. Mercado Livre e Amazon são aceitos.
+- **Página não pode ser qualquer link.** O motor recusa colar a home da loja, um vídeo, uma rede social, um blog, uma notícia, uma página de busca ou de categoria como se fosse a página de um produto — mesmo que o texto pareça convincente, se o link não parece a página de um produto específico, o diagnóstico nem começa. Mercado Livre e Amazon **produto** passam. **Depois** da sonda, o mesmo portão recusa listagem (`lista.mercadolivre.com.br`), muro de login (`/gz/account-verification`) e id de catálogo ML inventado — isso não é checkout da vs.
 
 ---
 
@@ -134,6 +139,49 @@ Duas regras que evitam gastar chamadas à toa:
 
 ---
 
+## 4.1 Quem a IA mostrou — três atores, nunca misturar
+
+Cada produto que a IA nomeia na resposta ganha **um** papel. Uma pergunta pode ter dois objetos (a vitrine e a farmácia) — cada um com o seu papel; a pergunta não escolhe só um. Misturar os papéis mente: o fundador lê “preço errado” quando a IA só mandou comprar noutro site.
+
+| O que a IA mostrou | O que é | O que não é |
+|---|---|---|
+| O site da página que o fundador colou | **Sua loja** | — |
+| O mesmo produto, **noutro** site (Raia, Mercado Livre, Pague Menos) | **Seu produto em outro site** | Mentira sobre o card da loja; concorrente |
+| **Os dois** na mesma pergunta | Selo **Sua loja** + fato da farmácia | Calar a farmácia; “bate com a loja” |
+| Outra marca | **Ocupante** | Você |
+
+O motor **guarda os três** naquela rodada (`objetos_citados`). Não monta lista de farmácias autorizadas. Não é uma 5ª causa da semana.
+
+O que o motor faz com cada um:
+
+- **Sua loja** — só aqui o preço **e** a marca da resposta são comparados com o cadastro (folga de 3% no preço). Se não bater **e** o motor consegue nomear o par (o que ela falou / o que está na loja), a causa pode ser Conteúdo (“a IA falou o preço errado”). Sem o par, não há incoerência.
+- **Seu produto em outro site** — fato da Prova: “Mandou comprar na Raia, não na sua loja.” Se o número também diverge: “Mandou comprar na Raia por R$ 71. Na sua loja é R$ 129,90.” **Não** vira incoerência. **Não** pinta o recado lime de preço errado. O preço da loja sai com centavos — não arredonda.
+- **Os dois na mesma pergunta** — o selo fica **Sua loja**. A segunda linha ainda diz a farmácia: “Também mandou comprar na Droga Raia por R$ 149,90.” O motor não pode apagar o segundo fato só porque a vitrine também entrou nas fontes.
+- **Ocupante** — se a IA te citou em todas as perguntas e ainda assim elegeu outra marca, a causa pode ser Produto. Na linha do mosaico (quem levou as perguntas que você **perdeu**), o motor classifica com `occupantsFromLostQueries` / `lostOccupantSpeech` — um SKU em todas as perdas → um nome; dois SKUs → “outros produtos”, sem eleger um. A aba Produto **só pinta a vs** se a face tiver PDP (`vsRivalPaintKeys`). Nome em ranking/listagem fica no Conteúdo. Sem checkout → vs vazia (`home.board.compare.noCheckout`), não cinco colunas. Farmácia do SKU do cliente fica na Prova, não no vs.
+
+```mermaid
+flowchart TD
+  gemini[Resposta Gemini à pergunta do fundador]
+  conteudo["Conteúdo: ocupante por pergunta perdida"]
+  vsface["vsRivalProductKeys: 1 ou 2 faces"]
+  follow["planCitedFaceFollowUp silencioso"]
+  gate["vsRivalPaintKeys: só PDP"]
+  empty["Vs vazia: Sem página de compra"]
+  paint["Vs pinta ShopperOffer daquela PDP"]
+  gemini --> conteudo
+  gemini --> vsface
+  vsface --> follow
+  follow --> gate
+  gate -->|blog / listagem / login / id inventado| empty
+  gate -->|PDP lida| paint
+```
+
+Cinco perguntas perdidas podem nomear cinco marcas **sem nenhuma PDP**. Isso não é furo da vs. Não eleger um “vencedor” a partir desses nomes.
+
+A frase que o fundador lê na tela vive no admin. O motor só classifica o objeto (mesmo site / outro site / outra marca) e **não** trata checkout de terceiros como “a IA mentiu sobre a sua loja”.
+
+---
+
 ## 5. Qual produto representa o diagnóstico da semana
 
 Um diagnóstico foca em **um único produto** por rodada — mesmo que vários tenham sido testados.
@@ -162,7 +210,7 @@ flowchart TD
     B -->|Sim| PAGINA1[["Trilha Página\n(porta fechada)"]]
     B -->|Não| C{"A loja está ligada,\nmas este produto não\nestá cadastrado nela\n— e não é um marketplace\nconhecido (Mercado Livre/Amazon)?"}
     C -->|Sim| PAGINA2[["Trilha Página\n(produto fora do painel)"]]
-    C -->|Não| D{"A resposta da IA é\nincoerente — preço ou\nmarca citados não batem\ncom o que a loja\nrealmente vende?"}
+    C -->|Não| D{"A resposta da IA é\nincoerente — preço ou\nmarca da sua loja\nnão batem com o cadastro?"}
     D -->|Sim| CONTEUDO1[["Trilha Conteúdo\n(resposta incoerente)"]]
     D -->|Não| E{"A IA citou você em\nmenos perguntas do que\no total — incluindo\nzero de todas?"}
     E -->|Sim| CONTEUDO2[["Trilha Conteúdo\n(pouca ou nenhuma citação)"]]
@@ -186,16 +234,17 @@ flowchart TD
     class MIDIA midia;
 ```
 
-Duas notas de leitura importantes:
+Notas de leitura importantes:
 
-- **Se a IA nunca citou você em nenhuma pergunta, não existe "resposta incoerente"** — sem te citar, não tem preço nem marca pra comparar. Nesse caso a árvore pula direto da pergunta de coerência para a de "quantas vezes te citou" (que já vai dar sim, porque 0 é menos que o total).
-- **"Produto antes de Mídia" é proposital.** Se a IA já citou você em todas as perguntas, a página técnica está ok, mas ela escolheu um concorrente específico, a causa é Produto — mesmo que o anúncio no Meta também esteja gastando mal. Não faz sentido aumentar a verba de um produto que a própria IA já rejeitou.
+- **Se a IA nunca apontou para a sua loja, não existe "resposta incoerente"** — sem a sua página nas fontes, não tem preço nem marca da vitrine pra comparar. Preço na farmácia ou no Mercado Livre **não** preenche esse buraco. A árvore segue para “quantas vezes te citou” (0 já é menos que o total → Conteúdo).
+- **Incoerente só com o par nomeável.** A pergunta D só é "sim" se o motor consegue dizer o que ela falou e o que está na loja (`coherence_incident`: said + catalog da **vitrine**). Flag antiga no job, sozinha, não pinta. Sem o par, a causa cai na citação (3/5, 0/5) — não num poço vazio de “não bate com o cadastro”.
+- **"Produto antes de Mídia" é proposital.** Se a IA já citou você em todas as perguntas, a página técnica está ok, mas ela escolheu um **ocupante** (outra marca), a causa é Produto — mesmo que o anúncio no Meta também esteja gastando mal. Não faz sentido aumentar a verba de um produto que a própria IA já rejeitou.
 
 ---
 
 ## 7. As 4 trilhas — o que cada uma realmente vira
 
-Depois que a árvore escolhe a trilha, o motor monta **uma única ação da semana** — nunca uma lista de tarefas.
+Depois que a árvore escolhe a trilha, o motor monta **a ação da semana**. Em Conteúdo o lime é **uma frase**; o vidro é a **fila** desta URL (furos que o GET marcou, ou um item de cadastro / preço-marca). Página e Produto continuam um `move`. Nunca um ensaio de pautas.
 
 ### 🟡 Trilha Conteúdo — "a IA não te conhece direito"
 
@@ -205,20 +254,22 @@ A ação sempre passa por uma pergunta primeiro: o cadastro deste produto na loj
 flowchart TD
     A[Trilha Conteúdo] --> B{O cadastro deste produto\ntem descrição útil e\npelo menos 3 atributos\ntécnicos preenchidos?}
     B -->|Não| M1["Ação começa no cadastro\nda loja: completar o que\nfalta primeiro — o conteúdo\nespera até isso existir"]
-    B -->|Sim| C{A IA já leu alguma\npágina própria de\nconteúdo da loja?}
+    B -->|Sim| I{Preço ou marca da vitrine\n≠ loja?}
+    I -->|Sim| M0["Ação: nesta PDP / neste cadastro,\ndeixe preço e marca iguais à loja"]
+    I -->|Não| C{A IA já leu alguma\npágina própria de\nconteúdo da loja?}
     C -->|Sim| M2["Ação: melhorar essa\npágina existente e\nreforçar o link para\no produto"]
     C -->|Não| D{Existe uma página\nprópria relevante para\no tema, mesmo que a\nIA não tenha lido ainda?}
     D -->|Sim| M2
-    D -->|Não| M3["Ação: criar uma página\nnova de conteúdo/\ncomparativo sobre o tema"]
+    D -->|Não| M3["Ação: nesta URL medida\n(PDP ou índice de blog),\nfila do que o GET viu faltar"]
 ```
 
 Regras que valem sempre nesta trilha:
 
 - A ação nunca copia um atributo que o concorrente tem e a loja **não** tem — isso seria "mentir no cadastro". Se o fato não pertence a este produto, o gap é aceito, não maquiado.
 - A frase final passa por uma camada de reescrita com um modelo de IA mais simples, só para deixar o texto mais claro para o fundador — essa camada não decide nada (não escolhe URL, não inventa fato); se ela tentar inventar algo, o motor descarta e usa uma frase padrão determinística no lugar.
-- Nunca vira uma lista de pautas de blog nem um slogan genérico — sempre um único parágrafo de ação concreta.
+- Nunca vira uma lista de pautas de blog nem um slogan genérico. O lime é um parágrafo. O vidro é a fila desta URL, na ordem.
 
-**Exemplo real:** *"Crie uma landing editorial/comparativa no domínio da loja (...) sobre suplemento de greens no Brasil, como alternativa ao que a IA citou. Use o que a loja já tem (...). Não escreva Certificação NSF — o produto não tem. A IA leu review e a loja de outra marca, não a sua ficha."*
+**Exemplo real (Complete Bari):** lede *A sua página do produto já existe. Falta a IA enxergar o que ela diz para quem ainda não sabe o seu nome. Não crie outra página.* A fila sai do GET: meta title, perguntas frequentes, frete nos dados de envio. O poço Página é a PDP colada. Nunca um slug inventado.
 
 ### 🔵 Trilha Página — "a porta técnica está travada"
 
@@ -288,7 +339,7 @@ Só conta o Meta convencional (feed, Stories, catálogo) — Google Ads, Merchan
 Em paralelo à árvore de decisão, o motor sempre calcula dois números — eles aparecem em qualquer uma das 4 trilhas, porque medem o impacto financeiro, não a causa.
 
 1. **Lacuna em R$** — compara, na receita que a IA está gerando para a loja, a proporção de vezes que um concorrente foi citado contra a proporção de vezes que você foi citado. Se a IA nunca te citou em nenhuma pergunta, o cálculo usa o total de perguntas como base (pra não dividir por zero) — o número nunca fica negativo; é sempre um "piso" do prejuízo, nunca um teto.
-2. **Clientes perdidos** — a lacuna em R$ dividida pelo ticket médio da loja. Uma estimativa de quantos clientes essa lacuna representa.
+2. **Clientes perdidos** — a lacuna em R$ dividida pelo ticket médio **deste SKU** no período (não o ticket médio da loja inteira). Uma estimativa de quantos clientes essa lacuna representa.
 3. **Custo para compensar via mídia** — clientes perdidos × custo por venda no Meta. É a resposta para "quanto custaria comprar de volta, via anúncio, o que a visibilidade orgânica não está trazendo". **Não deve ser somado com a lacuna** — são duas óticas diferentes (quanto se perde vs. quanto custaria recuperar via anúncio).
 
 ---
@@ -311,6 +362,39 @@ A mensagem que o fundador vê quando um trabalho trava sozinho é sempre a mesma
 
 ---
 
+## Leitor da oferta (vs)
+
+A vs compara **o seu SKU neste diagnóstico** com **o checkout que a IA mandou o comprador abrir nesta leitura**. Um tipo nos dois lados: `ShopperOffer`. Tudo que lê a rua implementa `OfferReader`. Cadastro Shopify só completa furo na esquerda.
+
+```mermaid
+flowchart TD
+  url["object.url / groundingUrlsForCitedObject"]
+  discover["planCitedFaceFollowUp silencioso se ainda não há PDP"]
+  fetch["collectCitedPdpUrls / unwrap login ML / resolveGroundingUrl"]
+  pick["pickOfferReader"]
+  read["readCitedOffer"]
+  refuse["refuseCitedOffer"]
+  offer["ShopperOffer"]
+  stamp["stampCitedShopperFacts / dropUrl se o GET falhou"]
+  gate["vsRivalPaintKeys — só PDP"]
+  empty["Vs vazia: Sem página de compra"]
+  vs["compareSideFromShopperFacts / overlayCatalogHoles"]
+  url --> fetch
+  discover --> fetch
+  fetch --> pick --> read --> refuse --> offer
+  offer --> stamp --> gate
+  gate -->|blog / listagem / login / id inventado| empty
+  gate -->|PDP lida| vs
+```
+
+`htmlReader` usa `fetchPublicPdp` + `shopperOfferFromIdentity` (JSON-LD Product, senão Open Graph, senão microdata). `mercadoLivreReader` e `vtexReader` mapeiam JSON público do **pathname já resolvido** para o mesmo `ShopperOffer`. Uma face da vs = **um checkout** (uma loja, uma PDP). `mergeShopperOffer` completa só os `null` do JSON dessa URL com o HTML **da mesma página**. Não junta Pague Menos + Extrafarma + Drogasil num perfil. Foto incompleta (path VTEX sem `.jpg`) cede à URL completa **dessa** loja. `qualidade` só selo/certidão, não slogan. Sem regex de preço no HTML visível. Sem miniatura `gstatic`. Sem `twitter:image`. Faces: `vsRivalProductKeys` (1, ou 2 no empate). Se a face não tem PDP (IA citou o nome num ranking ou numa listagem “onde comprar”), `planCitedFaceFollowUp` pede o link da loja — 1 tiro **silencioso** por face, inclusive no empate. Esse tiro **não** vira bolha em “O que a IA respondeu”. `hydrateCitedOfferImages` lê essa página; fatos da PDP substituem número de blog. GET falhou → `dropUrl`. A vs no admin só pinta face com checkout (`vsRivalPaintKeys`); blog/ranking/listagem/login fica em Conteúdo. Sem PDP → vs vazia, sem ficha fantasma. Conteúdo continua nomeando quem a IA apontou em cada pergunta.
+
+Portão de URL (gêmeo do wizard): `src/lib/product-url-gate.ts`. Recusa `/gz/account-verification`, `lista.mercadolivre.*`, MLB com dígitos demais (alucinação). `unwrapMarketplaceLoginUrl` usa o `go=` só se o destino for PDP.
+
+A árvore da trilha Produto (preço → avaliação → composição) **não muda** — o juiz continua em `produto-week-judge.ts`.
+
+---
+
 ## Onde cada peça deste mapa vive no código
 
 | Seção deste mapa | Arquivo |
@@ -319,13 +403,17 @@ A mensagem que o fundador vê quando um trabalho trava sozinho é sempre a mesma
 | Validações de entrada | `src/services/diagnostic-input.ts` |
 | Porta da loja aberta/fechada | `src/services/diagnostic-triage.ts` (`publicStorefrontUnreadable`) |
 | Rodada de perguntas ao Gemini | `src/services/dominant-diagnostic-runner.ts` (`executeQuery`) |
+| Três atores (loja / noutro site / ocupante; os dois na mesma pergunta) | `src/lib/cited-offer.ts` (`isClientStorefrontObject`, `isClientProductElsewhereObject`, `isClientCitedObject`) — gêmeo no admin. A frase da Prova vive no admin (`diagnosis-proof-fact.ts`) |
+| Preço e marca só na vitrine (par nomeável) | `src/services/diagnostic-triage.ts` (`computeTriage`, 3.1.1 / 3.1.3, `coherenceIncident`) |
+| Ocupante das perguntas perdidas | `src/lib/cited-offer.ts` (`occupantsFromLostQueries`, `lostOccupantSpeech`) — persiste em `checks.lost_occupants` + `lost_occupant_speech`; a coroa continua na aba Produto |
 | Produto da semana | `src/services/dominant-diagnostic-runner.ts` (`selectPrimarySku`, `selectDominantSku`) |
 | Árvore de decisão | `src/services/diagnostic-triage.ts` (`computeTriage`) |
 | Trilha Conteúdo | `src/services/llm-out-first-action.ts`, `src/services/founder-action-copy.ts` |
 | Trilha Página | `src/services/pdp-week-judge.ts`, `src/services/pdp-out-first-action.ts` |
 | Trilha Produto | `src/services/produto-week-judge.ts`, `src/services/produto-out-first-action.ts` |
 | Trilha Mídia | `src/services/diagnostic-output.ts` (bloco final de `buildDiagnosticOutput`) |
+| Leitor da oferta / vs | `src/lib/shopper-offer.ts` (`ShopperOffer`), `src/lib/cited-offer-adapters.ts` (`OfferReader`), `src/lib/cited-offer-image.ts` (`readCitedOffer`, `stampCitedShopperFacts`), `src/lib/cited-offer.ts` (`planCitedFaceFollowUp`, `vsRivalPaintKeys`), `src/lib/product-url-gate.ts` (`canonicalProductUrl`), `src/services/dominant-diagnostic-runner.ts` (`hydrateCitedOfferImages`, `completeCitedOffers`). Admin: `diagnosis-report-bind.ts` |
 | Tamanho do prejuízo | `src/services/revenue-gap-engine.ts` |
 | Fim da linha / travas | `src/services/dominant-diagnostic-runner.ts` (`try/catch` final), `src/services/diagnostic-job-stale.ts` |
 
-Para a lógica de roteamento na versão técnica completa (com nomes de função, ADRs e casos de teste), ver [`rint-app/docs/DIAGNOSIS-DOMINANT.md`](../../rint-app/docs/DIAGNOSIS-DOMINANT.md).
+Para a lógica de roteamento na versão técnica completa (com nomes de função, ADRs e casos de teste), ver [`rint-app/docs/DIAGNOSIS-DOMINANT.md`](../../rint-app/docs/DIAGNOSIS-DOMINANT.md). Identidade do objeto no probe: [`GEMINI-PROBE-METHODOLOGY.md`](./GEMINI-PROBE-METHODOLOGY.md) § Identidade. Decisão: [ADR-003](../.planning/decisions/ADR-003-citation-identity-grounding-precedence.md).

@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createGa4AiReferralPort, GA4_AI_LANDING_LIMIT } from "../src/ports/ga4-revenue-adapter.js";
+import {
+  createGa4AiReferralPort,
+  GA4_AI_LANDING_LIMIT,
+  ga4SessionEvidence,
+  snapshotGa4AiSources,
+} from "../src/ports/ga4-revenue-adapter.js";
 
 function reportDimensions(init: RequestInit | undefined): string[] {
   const parsed = JSON.parse(String(init?.body ?? "{}")) as {
@@ -120,5 +125,30 @@ describe("ga4-revenue-adapter", () => {
     const result = await port.getAiReferralRevenue({ start: "2026-05-01", end: "2026-05-31" });
     expect(result.totalSessions).toBe(12);
     expect(result.landings).toBeUndefined();
+  });
+
+  it("snapshots hosts that sent sessions, without revenue or medium", () => {
+    expect(
+      snapshotGa4AiSources([
+        { source: "chatgpt.com", sessions: 22 },
+        { source: "gemini.google.com", sessions: 0 },
+        { source: "  perplexity.ai  ", sessions: 9 },
+      ]),
+    ).toEqual([
+      { source: "chatgpt.com", sessions: 22 },
+      { source: "perplexity.ai", sessions: 9 },
+    ]);
+    expect(
+      ga4SessionEvidence({
+        bySource: [
+          { source: "chatgpt.com", medium: "ai-assistant", revenue: 100, sessions: 22 },
+          { source: "gemini.google.com", medium: "referral", revenue: 0, sessions: 0 },
+        ],
+        landings: [{ path: "/", sessions: 20 }],
+      }),
+    ).toEqual({
+      sessoesAiLandings: [{ path: "/", sessions: 20 }],
+      sessoesAiBySource: [{ source: "chatgpt.com", sessions: 22 }],
+    });
   });
 });

@@ -6,7 +6,19 @@
  * into sentences — URLs and attrs on screen come from `content_brief`.
  */
 
+import {
+  blogIndexWorkItem,
+  buildAlreadyOk,
+  buildPdpWorkItems,
+  editorialWorkItem,
+  isPdpReady,
+  type PdpSurfaceIndex,
+  priceBrandWorkItem,
+  type WeekWorkItem,
+} from "../lib/pdp-surface-index.js";
+import type { QueryCitationSplit } from "../lib/shopper-question-kind.js";
 import { type DecisionStep, step } from "./decision-trace.js";
+import { type LlmWeekReason, resolveLlmWeekReason } from "./llm-week-reason.js";
 
 export type CatalogFoundationGap = "attributes" | "description";
 
@@ -51,10 +63,18 @@ export type LlmContentBriefInput = {
   targetUrlSource?: "grounding" | "search_console" | null;
   catalogGaps?: CatalogFoundationGap[];
   productUrl?: string | null;
-  /** Hypothesis B: cited client object, price or brand ≠ Admin. */
+  /** Named storefront pair (said + catalog) — not a stale coherence_level flag. */
   incoherent?: boolean;
   /** Named in the answer; grounding hosts are not the storefront. */
   sourcesWithoutStore?: boolean;
+  citationClient?: number;
+  citationTotal?: number;
+  querySplit?: QueryCitationSplit | null;
+  pdpSurface?: PdpSurfaceIndex | null;
+  storefrontAccess?: string | null;
+  lostQueryTexts?: string[];
+  blogIndexUrl?: string | null;
+  blogIndexSurface?: "owned_content_directory" | "owned_content_subdomain" | null;
 };
 
 export type LlmContentBrief = {
@@ -66,7 +86,9 @@ export type LlmContentBrief = {
   surface:
     | "nova_landing_editorial_no_dominio_nao_pdp"
     | "url_editorial_existente_no_dominio_nao_pdp"
-    | "cadastro_shopify_antes_da_landing";
+    | "cadastro_shopify_antes_da_landing"
+    | "pdp_medida"
+    | "blog_indice_existente";
   target_url: string | null;
   target_url_source: "grounding" | "search_console" | null;
   existing_content_surface: "owned_content_directory" | "owned_content_subdomain" | null;
@@ -78,6 +100,10 @@ export type LlmContentBrief = {
   catalog_gaps: CatalogFoundationGap[];
   incoherent?: boolean;
   sourcesWithoutStore?: boolean;
+  week_reason: LlmWeekReason;
+  work_items?: WeekWorkItem[];
+  already_ok?: string[];
+  pdp_ready?: boolean;
   trace: DecisionStep[];
 };
 
@@ -313,7 +339,11 @@ export function catalogGapPhrase(gaps: CatalogFoundationGap[]): string {
 }
 
 export function formulateTrackLlmFirstAction(input: LlmContentBriefInput): LlmContentBrief {
-  const theme = themeFromQuerySet(input.queryTexts, input.skuName, input.brand);
+  const themeSource =
+    input.lostQueryTexts && input.lostQueryTexts.length > 0
+      ? input.lostQueryTexts
+      : input.queryTexts;
+  const theme = themeFromQuerySet(themeSource, input.skuName, input.brand);
   const catalogGaps = catalogFoundationGaps(input.catalogGaps);
   const catalogFirst = catalogGaps.length > 0 && !input.incoherent;
   const useAttrs = catalogFirst ? [] : input.unusedOwnAttrs.slice(0, 2);
@@ -322,12 +352,31 @@ export function formulateTrackLlmFirstAction(input: LlmContentBriefInput): LlmCo
     input.skipAttrs[0] ??
     null;
   const skipAttrs = skip ? [skip] : [];
-  const use = useAttrs.join(" e ");
-  const skipLine = skip ? ` Não escreva ${skip} — o ${input.skuName} não tem.` : "";
   const grounding_note = input.readReviewOrRivalStore ? ("review_not_listing" as const) : null;
-  const why = grounding_note ? " A IA leu review e a loja de outra marca, não a sua ficha." : "";
   const existingUrl = input.existingContentUrl?.trim() || null;
   const productUrl = input.productUrl?.trim() || null;
+  const blogIndexUrl = input.blogIndexUrl?.trim() || null;
+  const week_reason = resolveLlmWeekReason({
+    catalogFirst,
+    storefrontIncoherent: Boolean(input.incoherent),
+    sourcesWithoutStore: Boolean(input.sourcesWithoutStore),
+    citationClient: input.citationClient ?? 0,
+    citationTotal: input.citationTotal ?? 0,
+    split: input.querySplit ?? null,
+  });
+  const pdpReady = isPdpReady({
+    storefrontAccess: input.storefrontAccess,
+    catalogFirst,
+    split: input.querySplit ?? null,
+  });
+  const workFromPdp = input.pdpSurface
+    ? buildPdpWorkItems({
+        index: input.pdpSurface,
+        brand: input.brand,
+        lostQueryTexts: input.lostQueryTexts ?? [],
+      })
+    : [];
+  const alreadyOk = input.pdpSurface ? buildAlreadyOk(input.pdpSurface) : [];
   const trace: DecisionStep[] = [
     step(
       "catalog_foundation",
@@ -345,56 +394,104 @@ export function formulateTrackLlmFirstAction(input: LlmContentBriefInput): LlmCo
       catalogFirst ? "Não avaliado — o cadastro precisa ser completado primeiro." : undefined,
     ),
   ];
-  if (catalogFirst) {
-    const what = catalogGapPhrase(catalogGaps);
-    const where = productUrl ? `: ${productUrl}` : "";
-    const later = existingUrl
-      ? ` Com o cadastro em ordem, melhore o guia no domínio da loja.`
-      : ` Com o cadastro em ordem, crie uma landing editorial/comparativa no domínio da loja, com URL própria fora da PDP, sobre ${theme}.`;
-    return {
-      theme,
-      sku_name: input.skuName,
-      brand: input.brand,
-      page_type: "landing_editorial_comparativa",
-      surface: "cadastro_shopify_antes_da_landing",
-      target_url: productUrl,
-      target_url_source: null,
-      existing_content_surface: existingUrl ? (input.existingContentSurface ?? null) : null,
-      search_console_coverage: input.searchConsoleCoverage ?? "unknown",
-      use_attrs: useAttrs,
-      skip_attrs: skipAttrs,
-      grounding_note,
-      catalog_first: true,
-      catalog_gaps: catalogGaps,
-      incoherent: Boolean(input.incoherent),
-      sourcesWithoutStore: Boolean(input.sourcesWithoutStore),
-      first_action: `Complete no Shopify ${what} de ${input.skuName}${where} — o cadastro é a base; sem isso um guia novo não tem o que dizer.${later}${skipLine}${why}`,
-      trace,
-    };
-  }
-  const action = existingUrl
-    ? `Melhore esta landing editorial/comparativa já existente: ${existingUrl}. Use o que a loja já tem: ${use}. Reforce o link para ${input.skuName}.${skipLine}${why}`
-    : `Crie uma landing editorial/comparativa no domínio da loja, com URL própria fora da PDP, sobre ${theme}. Use o que a loja já tem: ${use}. Inclua um link para ${input.skuName}.${skipLine}${why}`;
-  return {
+  const shared = {
     theme,
     sku_name: input.skuName,
     brand: input.brand,
-    page_type: "landing_editorial_comparativa",
-    surface: existingUrl
-      ? "url_editorial_existente_no_dominio_nao_pdp"
-      : "nova_landing_editorial_no_dominio_nao_pdp",
-    target_url: existingUrl,
-    target_url_source: existingUrl ? (input.targetUrlSource ?? null) : null,
-    existing_content_surface: existingUrl ? (input.existingContentSurface ?? null) : null,
+    page_type: "landing_editorial_comparativa" as const,
     search_console_coverage: input.searchConsoleCoverage ?? "unknown",
     use_attrs: useAttrs,
     skip_attrs: skipAttrs,
     grounding_note,
-    catalog_first: false,
-    catalog_gaps: [],
     incoherent: Boolean(input.incoherent),
     sourcesWithoutStore: Boolean(input.sourcesWithoutStore),
-    first_action: action,
+    week_reason,
+    pdp_ready: pdpReady,
     trace,
+  };
+  if (catalogFirst) {
+    const what = catalogGapPhrase(catalogGaps);
+    return {
+      ...shared,
+      surface: "cadastro_shopify_antes_da_landing",
+      target_url: productUrl,
+      target_url_source: null,
+      existing_content_surface: existingUrl ? (input.existingContentSurface ?? null) : null,
+      catalog_first: true,
+      catalog_gaps: catalogGaps,
+      work_items: [
+        {
+          id: "catalog_fill",
+          where: "shopify",
+          do: `Complete no Shopify ${what} deste produto.`,
+        },
+      ],
+      already_ok: [],
+      first_action: `Complete no Shopify ${what} deste produto. O cadastro é a base; sem isso um guia novo não tem o que dizer.`,
+    };
+  }
+  if (input.incoherent) {
+    return {
+      ...shared,
+      surface: "pdp_medida",
+      target_url: productUrl,
+      target_url_source: null,
+      existing_content_surface: null,
+      catalog_first: false,
+      catalog_gaps: [],
+      work_items: [priceBrandWorkItem()],
+      already_ok: [],
+      first_action: productUrl
+        ? "A IA já fala de você, mas o preço ou a marca não batem com a loja. Deixe o cadastro claro nesta página do produto."
+        : "A IA já fala de você, mas o preço ou a marca não batem com a loja. Crie uma página no seu site que deixe preço e marca iguais à loja.",
+    };
+  }
+  if (existingUrl) {
+    return {
+      ...shared,
+      surface: "url_editorial_existente_no_dominio_nao_pdp",
+      target_url: existingUrl,
+      target_url_source: input.targetUrlSource ?? null,
+      existing_content_surface: input.existingContentSurface ?? null,
+      catalog_first: false,
+      catalog_gaps: [],
+      work_items: [editorialWorkItem()],
+      already_ok: [],
+      first_action: `Melhore esta página já existente no domínio da loja. Use o que a loja já tem. Não crie outra URL.`,
+    };
+  }
+  if (blogIndexUrl && pdpReady) {
+    return {
+      ...shared,
+      surface: "blog_indice_existente",
+      target_url: blogIndexUrl,
+      target_url_source: input.targetUrlSource ?? "search_console",
+      existing_content_surface: input.blogIndexSurface ?? "owned_content_directory",
+      catalog_first: false,
+      catalog_gaps: [],
+      work_items: [blogIndexWorkItem()],
+      already_ok: alreadyOk,
+      first_action:
+        "Crie um conteúdo neste blog. O Search Console já vê este endereço; nenhum post deste tema apareceu. Não invente o endereço do post.",
+    };
+  }
+  return {
+    ...shared,
+    surface: "pdp_medida",
+    target_url: productUrl,
+    target_url_source: null,
+    existing_content_surface: null,
+    catalog_first: false,
+    catalog_gaps: [],
+    work_items: workFromPdp,
+    already_ok: alreadyOk,
+    first_action:
+      week_reason === "sources_without_store"
+        ? productUrl
+          ? "A IA já fala o nome, mas foi ler em outros sites. Escreva nesta página do produto os fatos da loja."
+          : "A IA já fala o nome, mas foi ler em outros sites. Publique uma página sua com os fatos da loja."
+        : productUrl
+          ? "A sua página do produto já existe. Falta a IA enxergar o que ela diz para quem ainda não sabe o seu nome. Não crie outra página."
+          : "Falta a IA enxergar uma página sua para quem ainda não sabe o seu nome.",
   };
 }

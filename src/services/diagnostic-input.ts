@@ -1,101 +1,13 @@
 import { validationError } from "../lib/errors.js";
 import { assessPdpAdminQuality } from "../lib/pdp-admin-quality.js";
 import { detectStorefrontPlatform, fetchPublicPdp } from "../lib/pdp-identity.js";
+import { indexPdpHtml, type PdpSurfaceIndex } from "../lib/pdp-surface-index.js";
+import { isLikelyPdpUrl, isMarketplaceProductUrl } from "../lib/product-url-gate.js";
 import type { ShopifyProductSnapshotPort } from "../ports/types.js";
 import type { ProductRow, PromptRow } from "../repositories/types.js";
 import type { DiagnosticRunConfig, ShopifyProductSnapshot } from "./diagnostic-types.js";
 
-/**
- * Live product-URL gate — keep in sync with rint-app `src/lib/ui/product-url.ts`.
- * String compare only. Do not require `/products/`. Do not deny Facebook/OLX
- * or Mercado Livre / Amazon.
- */
-const DENIED_PRODUCT_URL_HOSTS = [
-  "youtube.com",
-  "youtu.be",
-  "youtube-nocookie.com",
-  "tiktok.com",
-  "instagram.com",
-  "twitter.com",
-  "x.com",
-  "linkedin.com",
-  "pinterest.com",
-  "reddit.com",
-  "wikipedia.org",
-  "google.com",
-  "google.com.br",
-  "bing.com",
-  "duckduckgo.com",
-  "threads.net",
-  "snapchat.com",
-  "whatsapp.com",
-  "telegram.org",
-  "medium.com",
-  "tumblr.com",
-  "substack.com",
-  "g1.globo.com",
-  "uol.com.br",
-  "folha.uol.com.br",
-  "estadao.com.br",
-  "terra.com.br",
-  "bbc.com",
-  "cnn.com",
-] as const;
-
-/** Listing / editorial paths — not a PDP. Do not match VTEX trailing `/p`. */
-const DENIED_PRODUCT_URL_PATH_RE =
-  /\/(collections?|colec(?:ao|oes|cion|ciones)|categor(?:y|ia|ias)|departamento|search|busca|pages?|blogs?|noticias?|news|artigos?|cart|carrinho|checkout|account|conta|login)(\/|$)/i;
-
-function isDeniedProductUrlHost(hostname: string): boolean {
-  const host = hostname.toLowerCase().replace(/^www\./, "");
-  return DENIED_PRODUCT_URL_HOSTS.some((suffix) => host === suffix || host.endsWith(`.${suffix}`));
-}
-
-function isDeniedProductUrlPath(pathname: string): boolean {
-  const path = pathname.replace(/\/+$/, "") || "/";
-  if (path === "/") return false;
-  if (/^\/(products|produtos|produto)$/i.test(path)) return true;
-  return DENIED_PRODUCT_URL_PATH_RE.test(path);
-}
-
-export function isLikelyPdpUrl(url: string): boolean {
-  try {
-    const parsed = new URL(url);
-    if (!["http:", "https:"].includes(parsed.protocol)) return false;
-    const path = parsed.pathname.replace(/\/+$/, "");
-    if (!path) return false;
-    if (isDeniedProductUrlHost(parsed.hostname)) return false;
-    if (isDeniedProductUrlPath(parsed.pathname)) return false;
-    return path.split("/").filter(Boolean).length >= 1;
-  } catch {
-    return false;
-  }
-}
-
-const MARKETPLACE_PRODUCT_HOSTS = [
-  "mercadolivre.com.br",
-  "mercadolivre.com",
-  "mercadolibre.com",
-  "mercadolibre.com.ar",
-  "mercadolibre.com.mx",
-  "amazon.com",
-  "amazon.com.br",
-  "amazon.co.uk",
-  "amazon.de",
-  "amzn.to",
-] as const;
-
-/** Mercado Livre / Amazon — street-only. Not the “wrong Shopify” recado. */
-export function isMarketplaceProductUrl(url: string): boolean {
-  try {
-    const host = new URL(url).hostname.toLowerCase().replace(/^www\./, "");
-    return MARKETPLACE_PRODUCT_HOSTS.some(
-      (suffix) => host === suffix || host.endsWith(`.${suffix}`),
-    );
-  } catch {
-    return false;
-  }
-}
+export { isLikelyPdpUrl, isMarketplaceProductUrl };
 
 export function assertRunLimits(
   products: ProductRow[],
@@ -190,6 +102,13 @@ function publicUrlUnreadable(fetched: {
   );
 }
 
+function derivedPdpSurface(
+  fetched: Awaited<ReturnType<typeof fetchPublicPdp>>,
+): PdpSurfaceIndex | undefined {
+  if (publicUrlUnreadable(fetched) || !fetched.html?.trim()) return undefined;
+  return indexPdpHtml(fetched.html);
+}
+
 function streetSnapshotFromFetch(
   product: ProductRow,
   fetched: Awaited<ReturnType<typeof fetchPublicPdp>>,
@@ -200,6 +119,7 @@ function streetSnapshotFromFetch(
     (!closed && fetched.identity.name?.trim()) ||
     product.title?.trim() ||
     displayNameFromUrl(product.url);
+  const pdpSurface = derivedPdpSurface(fetched);
   return {
     externalRef: product.external_ref,
     url: product.url,
@@ -232,8 +152,32 @@ function streetSnapshotFromFetch(
       panelMismatch: options.panelMismatch,
       shopConnected: options.shopConnected,
       shopDomain: options.shopDomain ?? null,
+      ...(pdpSurface ? { pdpSurface } : {}),
     },
   };
+}
+
+function foldListingAttr(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase()
+    .trim();
+}
+
+/** Street chips first; Admin metafields only add what the PDP did not already publish. */
+function mergeListingAttributes(street: string[], admin: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of [...street, ...admin]) {
+    const item = raw.trim();
+    if (!item) continue;
+    const key = foldListingAttr(item);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+  }
+  return out.slice(0, 24);
 }
 
 export async function validateAndSnapshotSku(
@@ -289,14 +233,14 @@ export async function validateAndSnapshotSku(
       throw validationError(`Validação do SKU falhou para ${product.url}: ${errors.join("; ")}`);
     }
 
-    const attributes =
-      snapshot.attributes.length > 0 ? snapshot.attributes : fetched.identity.attributes;
+    const attributes = mergeListingAttributes(fetched.identity.attributes, snapshot.attributes);
     const material = snapshot.material || fetched.identity.material;
     const dimension = snapshot.dimension || fetched.identity.dimension;
     const color = snapshot.color || fetched.identity.color;
-    const image = snapshot.image || fetched.identity.image;
+    const image = fetched.identity.image || snapshot.image;
     const imageAlt = snapshot.imageAlt ?? null;
     const descriptionChars = snapshot.descriptionChars ?? 0;
+    const pdpSurface = derivedPdpSurface(fetched);
     const admin = assessPdpAdminQuality({
       attributes,
       material,
@@ -330,9 +274,14 @@ export async function validateAndSnapshotSku(
           url: fetched.url || product.url,
           html: fetched.html,
         }),
-        imageSource: snapshot.image ? "shopify_api" : fetched.identity.imageSource,
+        imageSource: fetched.identity.image
+          ? fetched.identity.imageSource
+          : snapshot.image
+            ? "shopify_api"
+            : fetched.identity.imageSource,
         admin,
         shopDomain: snapshot.meta.shopDomain ?? options.shopDomain ?? null,
+        ...(pdpSurface ? { pdpSurface } : {}),
       },
     };
   }
@@ -386,6 +335,7 @@ export async function validateAndSnapshotSku(
     throw validationError(`Validação do SKU falhou para ${product.url}: ${errors.join("; ")}`);
   }
 
+  const pdpSurface = derivedPdpSurface(fetched);
   return {
     externalRef: product.external_ref,
     url: product.url,
@@ -411,6 +361,7 @@ export async function validateAndSnapshotSku(
         html: fetched.html,
       }),
       imageSource: fetched.identity.imageSource,
+      ...(pdpSurface ? { pdpSurface } : {}),
     },
   };
 }

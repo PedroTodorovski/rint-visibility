@@ -1,3 +1,6 @@
+import { citedNameAlignsWithClient, isClientStorefrontObject } from "../cited-offer.js";
+import { founderFacingAttributes } from "../founder-attributes.js";
+
 /** Probe derivative: objects Gemini named in the shopper answer. Not a catalog. */
 
 export type GeminiCitedObject = {
@@ -92,11 +95,14 @@ function numberOrNull(value: unknown): number | null {
 }
 
 function stringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .filter((item): item is string => typeof item === "string")
-    .map((item) => item.trim())
-    .filter(Boolean);
+  const raw: string[] = [];
+  if (typeof value === "string") raw.push(value);
+  else if (Array.isArray(value)) {
+    for (const item of value) {
+      if (typeof item === "string") raw.push(item);
+    }
+  }
+  return founderFacingAttributes(raw);
 }
 
 function extractJsonObject(raw: string): Record<string, unknown> | null {
@@ -154,15 +160,6 @@ function fold(value: string | null | undefined): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
-}
-
-function hostOf(url: string | null | undefined): string | null {
-  if (!url) return null;
-  try {
-    return new URL(url).hostname.replace(/^www\./, "").toLowerCase();
-  } catch {
-    return null;
-  }
 }
 
 function listedCitedObjects(structured: GeminiStructuredOutput): GeminiCitedObject[] {
@@ -254,15 +251,37 @@ export function citedObjectsFromStructured(
   return fallback ? [fallback] : [];
 }
 
+function citedIdentityNames(
+  parsed: GeminiStructuredOutput,
+  objects: GeminiCitedObject[],
+): Array<string | null | undefined> {
+  return [
+    parsed.nome_marca_citada,
+    parsed.produto_mencionado,
+    parsed.concorrente_citado_nome,
+    ...objects.flatMap((object) => [object.marca, object.produto]),
+  ];
+}
+
 export function hydrateGeminiStructured(parsed: GeminiStructuredOutput): GeminiStructuredOutput {
   const objects = citedObjectsFromStructured(parsed);
-  const primary = objects[0];
+  const dropNames = citedIdentityNames(parsed, objects);
+  const cleanedObjects = objects.map((object) => ({
+    ...object,
+    atributos: founderFacingAttributes(object.atributos, { dropNames }),
+  }));
+  const primary = cleanedObjects[0];
   const mentioned = parsed.atributos_mencionados_gemini ?? [];
   const attrs =
-    mentioned.length > 0 ? mentioned : [...new Set(objects.flatMap((object) => object.atributos))];
+    mentioned.length > 0
+      ? founderFacingAttributes(mentioned, { dropNames })
+      : founderFacingAttributes(
+          cleanedObjects.flatMap((object) => object.atributos),
+          { dropNames },
+        );
   return {
     ...parsed,
-    objetos_citados: objects,
+    objetos_citados: cleanedObjects,
     concorrente_citado_nome:
       parsed.concorrente_citado_nome || primary?.loja || primary?.marca || null,
     concorrente_citado_url: parsed.concorrente_citado_url || primary?.url || null,
@@ -309,15 +328,13 @@ export function isCitedClientObject(
   identity: ClientIdentity,
   groundingConfirmedClient?: boolean,
 ): boolean {
-  const citedHost = hostOf(object.url);
-  const clientHost = hostOf(identity.url);
-  if (citedHost && clientHost && citedHost === clientHost) return true;
+  if (isClientStorefrontObject(object, identity)) return true;
   if (groundingConfirmedClient === false) return false;
 
-  const cited = fold(object.marca) || fold(object.produto);
-  if (!cited) return false;
-  const names = [identity.name, identity.brand].map(fold).filter(Boolean);
-  return names.some((name) => name.includes(cited) || cited.includes(name.split(" ")[0] ?? name));
+  return (
+    citedNameAlignsWithClient(object.marca, identity) ||
+    citedNameAlignsWithClient(object.produto, identity)
+  );
 }
 
 export function competitorCitedObjects(
