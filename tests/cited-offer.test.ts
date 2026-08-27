@@ -220,10 +220,7 @@ describe("isClientCitedObject — grounding precedence (ADR-003)", () => {
     expect(isClientStorefrontObject(raia, completeBari)).toBe(false);
     expect(isClientProductElsewhereObject(raia, completeBari)).toBe(true);
     expect(
-      isClientProductElsewhereObject(
-        { ...raia, grounding_confirmed_client: false },
-        completeBari,
-      ),
+      isClientProductElsewhereObject({ ...raia, grounding_confirmed_client: false }, completeBari),
     ).toBe(true);
   });
 });
@@ -263,25 +260,25 @@ describe("occupantsFromLostQueries", () => {
           {
             cliente_foi_citado: false,
             gemini_structured: {
-                objetos_citados: [
-                  {
-                    marca: "Biostévi Nutrition",
-                    produto: "Biostévi",
-                    url: "https://drogaraia.com.br/biostevi",
-                  },
-                ],
+              objetos_citados: [
+                {
+                  marca: "Biostévi Nutrition",
+                  produto: "Biostévi",
+                  url: "https://drogaraia.com.br/biostevi",
+                },
+              ],
             },
           },
           {
             cliente_foi_citado: false,
             gemini_structured: {
-                objetos_citados: [
-                  {
-                    marca: "Centrum",
-                    produto: "Centrum Bariátrico",
-                    url: "https://beltnutrition.com.br/centrum",
-                  },
-                ],
+              objetos_citados: [
+                {
+                  marca: "Centrum",
+                  produto: "Centrum Bariátrico",
+                  url: "https://beltnutrition.com.br/centrum",
+                },
+              ],
             },
           },
           {

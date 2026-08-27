@@ -99,12 +99,11 @@ export function hostFromUrl(url: string | null | undefined): string | null {
   if (!url) return null;
   const trimmed = url.trim();
   if (!trimmed) return null;
-  const href =
-    trimmed.includes("://")
-      ? trimmed
-      : /^[a-z0-9.-]+\.[a-z]{2,}(?:[:/?#]|$)/i.test(trimmed)
-        ? `https://${trimmed}`
-        : trimmed;
+  const href = trimmed.includes("://")
+    ? trimmed
+    : /^[a-z0-9.-]+\.[a-z]{2,}(?:[:/?#]|$)/i.test(trimmed)
+      ? `https://${trimmed}`
+      : trimmed;
   try {
     const host = new URL(href).hostname.replace(/^www\./, "").toLowerCase();
     return host || null;
@@ -350,7 +349,7 @@ function factsFromMentions(
   const seller = modeLabel(sellers);
   return {
     seller,
-    sellerHost: hostFromUrl(urls[0] ?? null) ?? (seller && seller.includes(".") ? seller : null),
+    sellerHost: hostFromUrl(urls[0] ?? null) ?? (seller?.includes(".") ? seller : null),
     url: urls[0] ?? null,
     preco,
     moeda,
