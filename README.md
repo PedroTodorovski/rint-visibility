@@ -12,8 +12,9 @@ Rint MVP 2026 **engine API** — Gemini probes, revenue gap engine (slices futur
 
 | Doc | Purpose |
 |-----|---------|
-| [MAPA-DO-DIAGNOSTICO.md](docs/MAPA-DO-DIAGNOSTICO.md) | Mapa didático do motor — do input ao output, sem jargão |
-| [GEMINI-PROBE-METHODOLOGY.md](docs/GEMINI-PROBE-METHODOLOGY.md) | Probe canônico |
+| [MAPA-DO-DIAGNOSTICO.md](docs/MAPA-DO-DIAGNOSTICO.md) | Mapa didático — do pedido à causa da semana. Inclui os três atores (sua loja / produto noutro site / ocupante) e o caso dos dois na mesma pergunta |
+| [GEMINI-PROBE-METHODOLOGY.md](docs/GEMINI-PROBE-METHODOLOGY.md) | Probe canônico + identidade do objeto citado |
+| [ADR-003](.planning/decisions/ADR-003-citation-identity-grounding-precedence.md) | Grounding decide “é o cliente?”; preço 3.1.1 só na vitrine |
 | [../rint-app/.planning/MVP-DEFINITION.md](../rint-app/.planning/MVP-DEFINITION.md) | Produto |
 | [docs/database/GOVERNANCE.md](docs/database/GOVERNANCE.md) | Persistência |
 

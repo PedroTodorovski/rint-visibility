@@ -1,10 +1,16 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  compactIdentity,
   crownCompetitorSku,
+  formatCitedOfferLabel,
   groundingHostsFromUrls,
   isClientCitedObject,
+  isClientProductElsewhereObject,
+  isClientStorefrontObject,
+  lostOccupantSpeech,
   mergeFollowUpCitedObjects,
+  occupantsFromLostQueries,
   planCitedOfferFollowUp,
   productIdentityKey,
   sellerFromObject,
@@ -180,6 +186,46 @@ describe("isClientCitedObject — grounding precedence (ADR-003)", () => {
     const clientHostObject = { url: "https://nuture.com.br/products/nuture-daily-boost" };
     expect(isClientCitedObject(clientHostObject, client, false)).toBe(true);
   });
+
+  it("does not treat a Mercado Livre listing as the client because both titles start with Multivitamínico", () => {
+    const completeBari = {
+      name: "Multivitamínico Para Usuários de Caneta ou Bariátrico | 23 Nutrientes",
+      brand: "CompleteBari",
+      url: "https://completebari.com.br/products/multivitaminico-complete-bari-multi",
+    };
+    expect(
+      isClientCitedObject(
+        {
+          produto: "Multivitamínico Beleza Saúde Body Bari Pós-Cirurgia Bariátrica",
+          loja: "Mercado Livre",
+          preco: 71.01,
+        },
+        completeBari,
+        true,
+      ),
+    ).toBe(false);
+    expect(compactIdentity("Complete Bari")).toBe(compactIdentity("CompleteBari"));
+  });
+
+  it("treats the same brand on another host as the product elsewhere, not the storefront", () => {
+    const completeBari = {
+      name: "Multivitamínico Complete Bari Multi",
+      brand: "Complete Bari",
+      url: "https://completebari.com.br/products/multivitaminico-complete-bari-multi",
+    };
+    const raia = {
+      marca: "Complete Bari",
+      url: "https://www.drogaraia.com.br/complete-bari",
+    };
+    expect(isClientStorefrontObject(raia, completeBari)).toBe(false);
+    expect(isClientProductElsewhereObject(raia, completeBari)).toBe(true);
+    expect(
+      isClientProductElsewhereObject(
+        { ...raia, grounding_confirmed_client: false },
+        completeBari,
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("crownCompetitorSku — grounding precedence (ADR-003)", () => {
@@ -206,5 +252,72 @@ describe("crownCompetitorSku — grounding precedence (ADR-003)", () => {
       objectsByQuery: [[clientObject], [clientObject]],
     });
     expect(crownExcludedAsClient.confidence).toBe("empty");
+  });
+});
+
+describe("occupantsFromLostQueries", () => {
+  it("lists who took each lost query, not the job crown", () => {
+    expect(
+      occupantsFromLostQueries(
+        [
+          {
+            cliente_foi_citado: false,
+            gemini_structured: {
+                objetos_citados: [
+                  {
+                    marca: "Biostévi Nutrition",
+                    produto: "Biostévi",
+                    url: "https://drogaraia.com.br/biostevi",
+                  },
+                ],
+            },
+          },
+          {
+            cliente_foi_citado: false,
+            gemini_structured: {
+                objetos_citados: [
+                  {
+                    marca: "Centrum",
+                    produto: "Centrum Bariátrico",
+                    url: "https://beltnutrition.com.br/centrum",
+                  },
+                ],
+            },
+          },
+          {
+            cliente_foi_citado: true,
+            gemini_structured: {
+              objetos_citados: [{ marca: "Nuture", produto: "Daily Boost", url: client.url }],
+            },
+          },
+        ],
+        client,
+      ),
+    ).toEqual([
+      { name: "Biostévi Nutrition", href: "https://drogaraia.com.br/biostevi" },
+      { name: "Centrum Bariátrico", href: "https://beltnutrition.com.br/centrum" },
+    ]);
+  });
+
+  it("does not elect a spoken name when two SKUs took the losses", () => {
+    expect(
+      lostOccupantSpeech([
+        { name: "Biostévi Nutrition", href: "https://drogaraia.com.br/biostevi" },
+        { name: "Centrum Bariátrico", href: "https://beltnutrition.com.br/centrum" },
+      ]),
+    ).toEqual({ kind: "several" });
+    expect(
+      lostOccupantSpeech([
+        { name: "Centrum Bariátrico", href: "https://beltnutrition.com.br/centrum" },
+      ]),
+    ).toEqual({
+      kind: "one",
+      name: "Centrum Bariátrico",
+      href: "https://beltnutrition.com.br/centrum",
+    });
+  });
+
+  it("folds Centrum Centrum Bariátrico into one spoken name", () => {
+    expect(formatCitedOfferLabel("Centrum", "Centrum Bariátrico")).toBe("Centrum Bariátrico");
   });
 });

@@ -1,5 +1,6 @@
 import { type ClassifiedBrandSurface, classifyBrandSurface } from "../lib/citation-gold.js";
 import { crownCompetitorSku, hostFromUrl, planCitedOfferFollowUp } from "../lib/cited-offer.js";
+import { founderFacingAttributes } from "../lib/founder-attributes.js";
 import type {
   Ga4AiReferralRevenue,
   GoogleAdsSkuWaste,
@@ -112,15 +113,17 @@ function topCompetitorUrls(queries: DiagnosticQueryRow[]): string[] {
   ].slice(0, 5);
 }
 
+function catalogAttributes(snapshot: ShopifyProductSnapshot): string[] {
+  return founderFacingAttributes(snapshot.attributes);
+}
+
 function mentionedAttrsFromQueries(queries: DiagnosticQueryRow[]): string[] {
-  return [
-    ...new Set(
-      queries.flatMap((query) => [
-        ...query.atributos_mencionados_gemini,
-        ...query.gemini_structured.objetos_citados.flatMap((object) => object.atributos),
-      ]),
-    ),
-  ];
+  return founderFacingAttributes(
+    queries.flatMap((query) => [
+      ...query.atributos_mencionados_gemini,
+      ...query.gemini_structured.objetos_citados.flatMap((object) => object.atributos),
+    ]),
+  );
 }
 
 function missingMentionedAttributes(
@@ -128,7 +131,7 @@ function missingMentionedAttributes(
   queries: DiagnosticQueryRow[],
 ): string[] {
   const mentioned = new Set(mentionedAttrsFromQueries(queries).map((attr) => attr.toLowerCase()));
-  return snapshot.attributes
+  return catalogAttributes(snapshot)
     .filter((attribute) => !mentioned.has(attribute.toLowerCase()))
     .slice(0, 8);
 }
@@ -256,8 +259,9 @@ function trackLlmNextSteps(
   options: { incoherent?: boolean } = {},
 ) {
   const mentioned = mentionedAttrsFromQueries(queries);
+  const catalog = catalogAttributes(snapshot);
   const skipAttrs = mentioned.filter(
-    (item) => !snapshot.attributes.some((attr) => attr.toLowerCase() === item.toLowerCase()),
+    (item) => !catalog.some((attr) => attr.toLowerCase() === item.toLowerCase()),
   );
   const queryTexts = queries.map((query) => query.query_text);
   const theme = themeFromQuerySet(queryTexts, snapshot.name, snapshot.brand);
@@ -296,7 +300,7 @@ function trackLlmNextSteps(
         ? "search_console"
         : null,
     catalogGaps: catalogFoundationFromFields({
-      attributes: snapshot.attributes,
+      attributes: catalogAttributes(snapshot),
       descriptionChars: snapshot.descriptionChars ?? snapshot.meta.admin?.descriptionChars,
     }),
     productUrl: snapshot.url,
@@ -339,19 +343,24 @@ function trackLlmNextSteps(
   };
 }
 
-function formatOfferPrice(amount: number | null, currency: string | null): string | null {
-  if (amount == null) return null;
-  if ((currency ?? "").toUpperCase() === "USD") return `US$ ${Math.round(amount)}`;
-  return `R$ ${Math.round(amount)}`;
+/** Exact catalog cents — never Math.round(129.9) → 130. Engine copy is pt-BR. */
+export function formatOfferPrice(amount: number | null, currency: string | null): string | null {
+  if (amount == null || !Number.isFinite(amount)) return null;
+  const cents = Math.round(Math.abs(amount) * 100) % 100 !== 0;
+  const number = new Intl.NumberFormat("pt-BR", {
+    minimumFractionDigits: cents ? 2 : 0,
+    maximumFractionDigits: 2,
+  }).format(amount);
+  if ((currency ?? "BRL").toUpperCase() === "USD") return `US$ ${number}`;
+  return `R$ ${number}`;
 }
 
 function productSkipAttrs(snapshot: ShopifyProductSnapshot, said: string[]): string[] {
-  return said
+  const catalog = catalogAttributes(snapshot);
+  return founderFacingAttributes(said)
     .filter(
       (attr) =>
-        !snapshot.attributes.some((item) =>
-          item.toLowerCase().includes(attr.toLowerCase().slice(0, 8)),
-        ),
+        !catalog.some((item) => item.toLowerCase().includes(attr.toLowerCase().slice(0, 8))),
     )
     .slice(0, 4);
 }
@@ -391,7 +400,9 @@ function trackProdutoNextSteps(snapshot: ShopifyProductSnapshot, queries: Diagno
     client,
   });
   const followup = planCitedOfferFollowUp(crown);
+  const catalog = catalogAttributes(snapshot);
   const skipAttrs = productSkipAttrs(snapshot, crown.atributos);
+  const useAttrs = catalog.slice(0, 2);
   const crownedName = [crown.marca, crown.produto].filter(Boolean).join(" ") || null;
   const storeHint = crown.confidence === "store_only" ? (crown.storeHints[0]?.loja ?? null) : null;
   const priceClient = formatOfferPrice(snapshot.currentPrice, snapshot.currency);
@@ -406,22 +417,19 @@ function trackProdutoNextSteps(snapshot: ShopifyProductSnapshot, queries: Diagno
         ? { amount: crown.preco, currency: crown.moeda, label: priceCrowned }
         : null,
     clientDose:
-      snapshot.dimension ??
-      catalogFactFromAttributes(snapshot.attributes, CATALOG_FACT_NEEDLES.dimensions),
+      snapshot.dimension ?? catalogFactFromAttributes(catalog, CATALOG_FACT_NEEDLES.dimensions),
     crownedDose: crown.dimensoes,
-    ratingClient: catalogFactFromAttributes(snapshot.attributes, CATALOG_FACT_NEEDLES.rating),
+    ratingClient: catalogFactFromAttributes(catalog, CATALOG_FACT_NEEDLES.rating),
     ratingCrowned: crown.avaliacao,
-    shippingClient: catalogFactFromAttributes(snapshot.attributes, CATALOG_FACT_NEEDLES.shipping),
+    shippingClient: catalogFactFromAttributes(catalog, CATALOG_FACT_NEEDLES.shipping),
     shippingCrowned: crown.prazo_entrega,
     skipAttrs,
-    useAttrs: snapshot.attributes.slice(0, 2),
+    useAttrs,
     clientDimensions:
-      snapshot.dimension ??
-      catalogFactFromAttributes(snapshot.attributes, CATALOG_FACT_NEEDLES.dimensions),
+      snapshot.dimension ?? catalogFactFromAttributes(catalog, CATALOG_FACT_NEEDLES.dimensions),
     crownedDimensions: crown.dimensoes,
     clientQuality:
-      snapshot.material ??
-      catalogFactFromAttributes(snapshot.attributes, CATALOG_FACT_NEEDLES.quality),
+      snapshot.material ?? catalogFactFromAttributes(catalog, CATALOG_FACT_NEEDLES.quality),
     crownedQuality: crown.qualidade,
   });
   const brief = formulateTrackProdutoFirstAction({
@@ -434,7 +442,7 @@ function trackProdutoNextSteps(snapshot: ShopifyProductSnapshot, queries: Diagno
     storeHint,
     priceClient,
     priceCrowned,
-    useAttrs: snapshot.attributes.slice(0, 2),
+    useAttrs,
     skipAttrs,
     followupReason: followup?.reason ?? null,
     losingDimension: judgment.primaryDimension,

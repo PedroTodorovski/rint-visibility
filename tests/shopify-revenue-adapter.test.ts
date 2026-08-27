@@ -257,6 +257,75 @@ describe("shopify-revenue-adapter", () => {
     expect(snapshot?.brand).toBe("rint-test-store");
   });
 
+  it("keeps human metafields and drops GID / rich-text dumps", async () => {
+    const fetchImpl = async () =>
+      new Response(
+        JSON.stringify({
+          data: {
+            product: {
+              id: "gid://shopify/Product/3",
+              title: "Complete Bari Multi",
+              productType: "Multi Unitário",
+              options: [{ name: "Title", values: ["Default Title"] }],
+              metafields: {
+                edges: [
+                  {
+                    node: {
+                      namespace: "custom",
+                      key: "benefits_list_images",
+                      value: '["gid://shopify/Metaobject/123"]',
+                    },
+                  },
+                  {
+                    node: {
+                      namespace: "custom",
+                      key: "specification_html_title",
+                      value: '{"type":"root","children":[{"type":"text","value":"Ficha"}]}',
+                    },
+                  },
+                  {
+                    node: {
+                      namespace: "custom",
+                      key: "composition_text_list",
+                      value: '["Vitamina D3", "Metilfolato"]',
+                    },
+                  },
+                  {
+                    node: {
+                      namespace: "custom",
+                      key: "quantidade",
+                      value: "1 unidade",
+                    },
+                  },
+                ],
+              },
+              priceRangeV2: { minVariantPrice: { amount: "129.90", currencyCode: "BRL" } },
+              variants: { edges: [] },
+            },
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+
+    const port = createShopifyProductSnapshotPort(
+      { shopDomain: "completebari.myshopify.com", accessToken: "shpat_test" },
+      fetchImpl as typeof fetch,
+    );
+
+    const snapshot = await port.getProductSnapshot({
+      ref: "3",
+      url: "https://completebari.com.br/products/multivitaminico-complete-bari-multi",
+    });
+
+    expect(snapshot?.attributes).toEqual([
+      "Multi Unitário",
+      "Vitamina D3",
+      "Metilfolato",
+      "Quantidade: 1 unidade",
+    ]);
+    expect(snapshot?.attributes.join(" ")).not.toMatch(/gid:\/\/shopify|specification_html/);
+  });
+
   it("reads Shopify string errors instead of leaking shopify_product_query_failed", async () => {
     expect(shopifyGraphqlErrorMessage({ errors: "Invalid API key or access token" })).toBe(
       "Invalid API key or access token",

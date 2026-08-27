@@ -1,3 +1,4 @@
+import { founderFacingAttributes } from "../lib/founder-attributes.js";
 import { assessPdpAdminQuality, plainTextLength } from "../lib/pdp-admin-quality.js";
 import type { ShopifyProductSnapshot } from "../services/diagnostic-types.js";
 import type {
@@ -319,21 +320,29 @@ function productAttributes(product: ShopifyProductNode): {
   color: string | null;
 } {
   const values = new Map<string, string>();
+  const chips: string[] = [];
   const productType = product.productType?.trim();
-  if (productType) values.set("__product_type", productType);
+  if (productType) {
+    values.set("__product_type", productType);
+    chips.push(productType);
+  }
 
   for (const option of product.options ?? []) {
     const name = option.name?.trim();
     const first = option.values?.find((value) => value.trim().length > 0)?.trim();
     if (!name || !first || isShopifyDefaultVariantOption(name, first)) continue;
-    values.set(name.toLowerCase(), `${name}: ${first}`);
+    const labeled = `${name}: ${first}`;
+    values.set(name.toLowerCase(), labeled);
+    chips.push(labeled);
   }
 
   for (const edge of product.metafields?.edges ?? []) {
     const key = edge.node?.key?.trim();
     const value = edge.node?.value?.trim();
     if (!key || !value) continue;
-    values.set(key.toLowerCase(), `${key}: ${value}`);
+    const expanded = founderFacingAttributes([`${key}: ${value}`]);
+    chips.push(...expanded);
+    if (expanded[0]) values.set(key.toLowerCase(), expanded[0]);
   }
 
   const selectedFromVariants = product.variants?.edges?.[0]?.node?.selectedOptions ?? [];
@@ -341,7 +350,9 @@ function productAttributes(product: ShopifyProductNode): {
     const name = selected.name?.trim();
     const value = selected.value?.trim();
     if (!name || !value || isShopifyDefaultVariantOption(name, value)) continue;
-    values.set(name.toLowerCase(), `${name}: ${value}`);
+    const labeled = `${name}: ${value}`;
+    values.set(name.toLowerCase(), labeled);
+    chips.push(labeled);
   }
 
   const findValue = (needles: string[]): string | null => {
@@ -356,9 +367,7 @@ function productAttributes(product: ShopifyProductNode): {
   const color = findValue(["cor", "color"]);
 
   return {
-    attributes: [
-      ...new Set([...values.values(), material, dimension, color].filter(Boolean) as string[]),
-    ],
+    attributes: founderFacingAttributes(chips),
     material,
     dimension,
     color,

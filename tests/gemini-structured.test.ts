@@ -71,6 +71,36 @@ describe("parseGeminiStructuredOutput", () => {
     });
   });
 
+  it("splits comma-list atributos and drops product names / machine dumps", () => {
+    const parsed = parseGeminiStructuredOutput(
+      JSON.stringify({
+        cliente_foi_citado: false,
+        concorrente_citado_nome: "Drogasil",
+        atributos_mencionados_gemini: "Centrum Silver +50, Centrum Junior, vitaminas ativas",
+        nome_marca_citada: "Centrum",
+        produto_mencionado: "Centrum Silver +50",
+        objetos_citados: [
+          {
+            marca: "Centrum",
+            produto: "Centrum Silver +50",
+            atributos: [
+              "Centrum Silver +50, Centrum Junior, Flintstones completo",
+              'benefits_list_images: ["gid://shopify/Metaobject/1"]',
+              "NSF",
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(parsed?.objetos_citados[0]?.atributos).toEqual([
+      "Centrum Junior",
+      "Flintstones completo",
+      "NSF",
+    ]);
+    expect(parsed?.atributos_mencionados_gemini).toEqual(["Centrum Junior", "vitaminas ativas"]);
+  });
+
   it("hydrates a single object from legacy singular fields", () => {
     const parsed = parseGeminiStructuredOutput(
       JSON.stringify({
@@ -176,6 +206,27 @@ describe("cited object identity", () => {
         url: "https://www.acme.example/products/hero",
       };
       expect(isCitedClientObject(clientHostObject, client, false)).toBe(true);
+    });
+
+    it("does not treat a first-word Multivitamínico listing as the client", () => {
+      const completeBari = {
+        name: "Multivitamínico Para Usuários de Caneta ou Bariátrico | 23 Nutrientes",
+        brand: "CompleteBari",
+        url: "https://completebari.com.br/products/multivitaminico-complete-bari-multi",
+      };
+      expect(
+        isCitedClientObject(
+          {
+            ...emptyCitedObject(),
+            produto: "Multivitamínico Beleza Saúde Body Bari Pós-Cirurgia Bariátrica",
+            loja: "Mercado Livre",
+            preco: 71.01,
+            moeda: "BRL",
+          },
+          completeBari,
+          true,
+        ),
+      ).toBe(false);
     });
   });
 

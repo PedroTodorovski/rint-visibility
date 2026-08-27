@@ -2,6 +2,8 @@
 
 > Documento didático, sem jargão técnico. Objetivo: qualquer pessoa consegue abrir este arquivo e entender, do início ao fim, como o motor decide o que mostrar para o fundador — desde o clique que pede um diagnóstico até a única resposta final que ele recebe.
 >
+> Inclui **quem** a IA mostrou: sua loja, o seu produto noutro site, ou outra marca. Os dois primeiros podem aparecer **na mesma pergunta** — o selo continua Sua loja e a segunda linha ainda fala da farmácia. Misturar os papéis faz o fundador pensar demais — e ainda ler “preço errado” quando a IA só mandou comprar noutro checkout.
+>
 > Este mapa descreve fielmente o que o código faz hoje. Cada bifurcação aqui corresponde a uma condição real no motor (`rint-visibility`). Para a versão técnica completa (nomes de função, linhas de código, casos de teste), ver [`rint-app/docs/DIAGNOSIS-DOMINANT.md`](../../rint-app/docs/DIAGNOSIS-DOMINANT.md) e [`GEMINI-PROBE-METHODOLOGY.md`](./GEMINI-PROBE-METHODOLOGY.md).
 
 ---
@@ -19,8 +21,11 @@ Alguns termos técnicos viram nome de negócio aqui. Tabela de tradução:
 | No código | Neste mapa | O que é de verdade |
 |---|---|---|
 | SKU | Produto | Um produto específico sendo testado — uma URL de página de produto |
-| Coerência | "A resposta bate com a loja" | Se preço/marca que a IA citou batem com o cadastro real |
-| Citação / "cliente foi citado" | "A IA te citou como fonte" | A loja apareceu como referência na resposta |
+| Coerência | "A resposta bate com a loja" | Se preço/marca **da sua página** batem com o cadastro. Preço noutro site não entra |
+| Citação / "cliente foi citado" | "A IA apontou para a sua loja" | O site da URL que você colou apareceu nas fontes |
+| Seu produto em outro site | O mesmo produto, noutro site | Farmácia, Mercado Livre, etc. — ainda é o seu SKU, não é a sua loja |
+| Os dois na mesma pergunta | Sua loja **e** o SKU noutro site | Selo Sua loja; a segunda linha ainda fala da farmácia. Não é “bate com a loja” |
+| Ocupante | Outra marca | Quem a IA escolheu no seu lugar |
 | Grounding | "As fontes que a IA consultou" | Os links que o Google Search (usado pela IA) realmente leu |
 | JSON-LD / schema | "Ficha técnica legível por máquina" | Um bloco de dados estruturados na página que a IA lê direto, sem precisar interpretar texto solto |
 | Retrato do dia (day photo) | "Aproveitar o que já foi medido hoje" | Cache que evita perguntar a mesma coisa duas vezes no mesmo dia |
@@ -134,6 +139,30 @@ Duas regras que evitam gastar chamadas à toa:
 
 ---
 
+## 4.1 Quem a IA mostrou — três atores, nunca misturar
+
+Cada produto que a IA nomeia na resposta ganha **um** papel. Uma pergunta pode ter dois objetos (a vitrine e a farmácia) — cada um com o seu papel; a pergunta não escolhe só um. Misturar os papéis mente: o fundador lê “preço errado” quando a IA só mandou comprar noutro site.
+
+| O que a IA mostrou | O que é | O que não é |
+|---|---|---|
+| O site da página que o fundador colou | **Sua loja** | — |
+| O mesmo produto, **noutro** site (Raia, Mercado Livre, Pague Menos) | **Seu produto em outro site** | Mentira sobre o card da loja; concorrente |
+| **Os dois** na mesma pergunta | Selo **Sua loja** + fato da farmácia | Calar a farmácia; “bate com a loja” |
+| Outra marca | **Ocupante** | Você |
+
+O motor **guarda os três** naquela rodada (`objetos_citados`). Não monta lista de farmácias autorizadas. Não é uma 5ª causa da semana.
+
+O que o motor faz com cada um:
+
+- **Sua loja** — só aqui o preço **e** a marca da resposta são comparados com o cadastro (folga de 3% no preço). Se não bater **e** o motor consegue nomear o par (o que ela falou / o que está na loja), a causa pode ser Conteúdo (“a IA falou o preço errado”). Sem o par, não há incoerência.
+- **Seu produto em outro site** — fato da Prova: “Mandou comprar na Raia, não na sua loja.” Se o número também diverge: “Mandou comprar na Raia por R$ 71. Na sua loja é R$ 129,90.” **Não** vira incoerência. **Não** pinta o recado lime de preço errado. O preço da loja sai com centavos — não arredonda.
+- **Os dois na mesma pergunta** — o selo fica **Sua loja**. A segunda linha ainda diz a farmácia: “Também mandou comprar na Droga Raia por R$ 149,90.” O motor não pode apagar o segundo fato só porque a vitrine também entrou nas fontes.
+- **Ocupante** — se a IA te citou em todas as perguntas e ainda assim elegeu outra marca, a causa pode ser Produto. Na linha do mosaico (quem levou as perguntas que você **perdeu**), o motor classifica com `occupantsFromLostQueries` / `lostOccupantSpeech` — um SKU em todas as perdas → um nome; dois SKUs → “outros produtos”, sem eleger um. Isso **não** é a coroa da aba Produto.
+
+A frase que o fundador lê na tela vive no admin. O motor só classifica o objeto (mesmo site / outro site / outra marca) e **não** trata checkout de terceiros como “a IA mentiu sobre a sua loja”.
+
+---
+
 ## 5. Qual produto representa o diagnóstico da semana
 
 Um diagnóstico foca em **um único produto** por rodada — mesmo que vários tenham sido testados.
@@ -162,7 +191,7 @@ flowchart TD
     B -->|Sim| PAGINA1[["Trilha Página\n(porta fechada)"]]
     B -->|Não| C{"A loja está ligada,\nmas este produto não\nestá cadastrado nela\n— e não é um marketplace\nconhecido (Mercado Livre/Amazon)?"}
     C -->|Sim| PAGINA2[["Trilha Página\n(produto fora do painel)"]]
-    C -->|Não| D{"A resposta da IA é\nincoerente — preço ou\nmarca citados não batem\ncom o que a loja\nrealmente vende?"}
+    C -->|Não| D{"A resposta da IA é\nincoerente — preço ou\nmarca da sua loja\nnão batem com o cadastro?"}
     D -->|Sim| CONTEUDO1[["Trilha Conteúdo\n(resposta incoerente)"]]
     D -->|Não| E{"A IA citou você em\nmenos perguntas do que\no total — incluindo\nzero de todas?"}
     E -->|Sim| CONTEUDO2[["Trilha Conteúdo\n(pouca ou nenhuma citação)"]]
@@ -186,10 +215,11 @@ flowchart TD
     class MIDIA midia;
 ```
 
-Duas notas de leitura importantes:
+Notas de leitura importantes:
 
-- **Se a IA nunca citou você em nenhuma pergunta, não existe "resposta incoerente"** — sem te citar, não tem preço nem marca pra comparar. Nesse caso a árvore pula direto da pergunta de coerência para a de "quantas vezes te citou" (que já vai dar sim, porque 0 é menos que o total).
-- **"Produto antes de Mídia" é proposital.** Se a IA já citou você em todas as perguntas, a página técnica está ok, mas ela escolheu um concorrente específico, a causa é Produto — mesmo que o anúncio no Meta também esteja gastando mal. Não faz sentido aumentar a verba de um produto que a própria IA já rejeitou.
+- **Se a IA nunca apontou para a sua loja, não existe "resposta incoerente"** — sem a sua página nas fontes, não tem preço nem marca da vitrine pra comparar. Preço na farmácia ou no Mercado Livre **não** preenche esse buraco. A árvore segue para “quantas vezes te citou” (0 já é menos que o total → Conteúdo).
+- **Incoerente só com o par nomeável.** A pergunta D só é "sim" se o motor consegue dizer o que ela falou e o que está na loja (`coherence_incident`: said + catalog da **vitrine**). Flag antiga no job, sozinha, não pinta. Sem o par, a causa cai na citação (3/5, 0/5) — não num poço vazio de “não bate com o cadastro”.
+- **"Produto antes de Mídia" é proposital.** Se a IA já citou você em todas as perguntas, a página técnica está ok, mas ela escolheu um **ocupante** (outra marca), a causa é Produto — mesmo que o anúncio no Meta também esteja gastando mal. Não faz sentido aumentar a verba de um produto que a própria IA já rejeitou.
 
 ---
 
@@ -319,6 +349,9 @@ A mensagem que o fundador vê quando um trabalho trava sozinho é sempre a mesma
 | Validações de entrada | `src/services/diagnostic-input.ts` |
 | Porta da loja aberta/fechada | `src/services/diagnostic-triage.ts` (`publicStorefrontUnreadable`) |
 | Rodada de perguntas ao Gemini | `src/services/dominant-diagnostic-runner.ts` (`executeQuery`) |
+| Três atores (loja / noutro site / ocupante; os dois na mesma pergunta) | `src/lib/cited-offer.ts` (`isClientStorefrontObject`, `isClientProductElsewhereObject`, `isClientCitedObject`) — gêmeo no admin. A frase da Prova vive no admin (`diagnosis-proof-fact.ts`) |
+| Preço e marca só na vitrine (par nomeável) | `src/services/diagnostic-triage.ts` (`computeTriage`, 3.1.1 / 3.1.3, `coherenceIncident`) |
+| Ocupante das perguntas perdidas | `src/lib/cited-offer.ts` (`occupantsFromLostQueries`, `lostOccupantSpeech`) — persiste em `checks.lost_occupants` + `lost_occupant_speech`; a coroa continua na aba Produto |
 | Produto da semana | `src/services/dominant-diagnostic-runner.ts` (`selectPrimarySku`, `selectDominantSku`) |
 | Árvore de decisão | `src/services/diagnostic-triage.ts` (`computeTriage`) |
 | Trilha Conteúdo | `src/services/llm-out-first-action.ts`, `src/services/founder-action-copy.ts` |
@@ -328,4 +361,4 @@ A mensagem que o fundador vê quando um trabalho trava sozinho é sempre a mesma
 | Tamanho do prejuízo | `src/services/revenue-gap-engine.ts` |
 | Fim da linha / travas | `src/services/dominant-diagnostic-runner.ts` (`try/catch` final), `src/services/diagnostic-job-stale.ts` |
 
-Para a lógica de roteamento na versão técnica completa (com nomes de função, ADRs e casos de teste), ver [`rint-app/docs/DIAGNOSIS-DOMINANT.md`](../../rint-app/docs/DIAGNOSIS-DOMINANT.md).
+Para a lógica de roteamento na versão técnica completa (com nomes de função, ADRs e casos de teste), ver [`rint-app/docs/DIAGNOSIS-DOMINANT.md`](../../rint-app/docs/DIAGNOSIS-DOMINANT.md). Identidade do objeto no probe: [`GEMINI-PROBE-METHODOLOGY.md`](./GEMINI-PROBE-METHODOLOGY.md) § Identidade. Decisão: [ADR-003](../.planning/decisions/ADR-003-citation-identity-grounding-precedence.md).

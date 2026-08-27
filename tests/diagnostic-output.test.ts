@@ -5,7 +5,7 @@ import type {
   DiagnosticQueryRow,
   DiagnosticSkuRow,
 } from "../src/repositories/diagnostic-tables.js";
-import { buildDiagnosticOutput } from "../src/services/diagnostic-output.js";
+import { buildDiagnosticOutput, formatOfferPrice } from "../src/services/diagnostic-output.js";
 import type { ShopifyProductSnapshot } from "../src/services/diagnostic-types.js";
 
 const meta = { port: "test", fetchedAt: "2026-08-18T00:00:00.000Z", source: "test" };
@@ -90,6 +90,15 @@ function query(
     created_at: "2026-08-18T00:00:00.000Z",
   };
 }
+
+describe("formatOfferPrice", () => {
+  it("keeps catalog cents — 129.90 is not 130", () => {
+    expect(formatOfferPrice(129.9, "BRL")).toMatch(/129,90/);
+    expect(formatOfferPrice(129.9, "BRL")).not.toMatch(/130/);
+    expect(formatOfferPrice(348, "BRL")).toMatch(/348/);
+    expect(formatOfferPrice(99.9, "USD")).toMatch(/99,90/);
+  });
+});
 
 describe("buildDiagnosticOutput track_llm first_action", () => {
   it("emits a formulated content_brief, not a pasted wizard query and not the generic slogan", () => {

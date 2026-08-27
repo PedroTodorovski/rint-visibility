@@ -74,14 +74,119 @@ export function foldIdentity(value: string | null | undefined): string {
     .trim();
 }
 
+/** Same as foldIdentity, but "Complete Bari" and "CompleteBari" are one name. */
+export function compactIdentity(value: string | null | undefined): string {
+  return foldIdentity(value).replace(/\s+/g, "");
+}
+
+/** Marca + produto without “Centrum Centrum Bariátrico”. Twin: rint-app. */
+export function formatCitedOfferLabel(
+  marca: string | null | undefined,
+  produto: string | null | undefined,
+): string {
+  const brand = marca?.trim() ?? "";
+  const product = produto?.trim() ?? "";
+  if (!brand) return product;
+  if (!product) return brand;
+  const brandFold = foldIdentity(brand);
+  const productFold = foldIdentity(product);
+  if (productFold.startsWith(brandFold)) return product;
+  if (brandFold.startsWith(productFold)) return brand;
+  return `${brand} ${product}`;
+}
+
 export function hostFromUrl(url: string | null | undefined): string | null {
   if (!url) return null;
+  const trimmed = url.trim();
+  if (!trimmed) return null;
+  const href =
+    trimmed.includes("://")
+      ? trimmed
+      : /^[a-z0-9.-]+\.[a-z]{2,}(?:[:/?#]|$)/i.test(trimmed)
+        ? `https://${trimmed}`
+        : trimmed;
   try {
-    const host = new URL(url).hostname.replace(/^www\./, "").toLowerCase();
+    const host = new URL(href).hostname.replace(/^www\./, "").toLowerCase();
     return host || null;
   } catch {
     return null;
   }
+}
+
+/** Category words that must not claim the client's Shopify title (ADR-003 residual). */
+const GENERIC_CITED_IDENTITY = new Set([
+  "multivitaminico",
+  "polivitaminico",
+  "vitamina",
+  "vitaminas",
+  "vitamin",
+  "suplemento",
+  "suplementos",
+  "produto",
+  "kit",
+  "capsula",
+  "capsulas",
+]);
+
+/**
+ * Brand/product overlap without the first-word hole (`"Multivitamínico …" ⊂ client title`).
+ * Twin: `rint-app/src/lib/cited-offer.ts`.
+ */
+export function citedNameAlignsWithClient(
+  citedRaw: string | null | undefined,
+  client: Pick<ClientOfferIdentity, "name" | "brand">,
+): boolean {
+  const cited = compactIdentity(citedRaw);
+  if (cited.length < 3) return false;
+
+  const brand = compactIdentity(client.brand);
+  if (brand.length >= 3 && cited === brand) return true;
+  if (brand.length >= 4 && cited.includes(brand)) return true;
+
+  const product = compactIdentity(client.name);
+  if (product.length < 3) return false;
+  if (cited === product) return true;
+  if (GENERIC_CITED_IDENTITY.has(cited)) return false;
+  if (product.includes(cited) || cited.includes(product)) {
+    const shorter = cited.length <= product.length ? cited : product;
+    return shorter.length >= 8;
+  }
+  return false;
+}
+
+/** Price of the client's own PDP — not a reseller or marketplace listing. */
+export function isClientStorefrontObject(
+  object: CitedObjectLike,
+  client: ClientOfferIdentity,
+): boolean {
+  const citedHost = hostFromUrl(object.url);
+  const clientHost = hostFromUrl(client.url);
+  return Boolean(citedHost && clientHost && citedHost === clientHost);
+}
+
+/**
+ * Same brand/SKU on a host that is not the pasted storefront (Raia, Mercado Livre).
+ * Not the shopper's own checkout — and not a rival brand.
+ * Grounding `false` still counts: ADR-003 stamps reseller objects false once the
+ * storefront is confirmed, so that 3.1.1 does not use the pharmacy price. Twin: rint-app.
+ */
+export function isClientProductElsewhereObject(
+  object: CitedObjectLike,
+  client: ClientOfferIdentity,
+): boolean {
+  if (isClientStorefrontObject(object, client)) return false;
+  const nameOk =
+    citedNameAlignsWithClient(object.marca, client) ||
+    citedNameAlignsWithClient(object.produto, client);
+  if (!nameOk) return false;
+  const citedHost = hostFromUrl(object.url);
+  const clientHost = hostFromUrl(client.url);
+  if (citedHost && clientHost && citedHost !== clientHost) return true;
+  const loja = object.loja?.trim();
+  if (!loja) return false;
+  const lojaHost = hostFromUrl(loja.includes("://") ? loja : `https://${loja}`);
+  if (lojaHost && clientHost && lojaHost === clientHost) return false;
+  return Boolean(loja);
 }
 
 export function isLikelyProductUrl(url: string | null | undefined): boolean {
@@ -121,15 +226,66 @@ export function isClientCitedObject(
   client: ClientOfferIdentity,
   groundingConfirmedClient?: boolean,
 ): boolean {
-  const citedHost = hostFromUrl(object.url);
-  const clientHost = hostFromUrl(client.url);
-  if (citedHost && clientHost && citedHost === clientHost) return true;
+  if (isClientStorefrontObject(object, client)) return true;
   if (groundingConfirmedClient === false) return false;
 
-  const cited = foldIdentity(object.marca) || foldIdentity(object.produto);
-  if (!cited) return false;
-  const names = [client.name, client.brand].map(foldIdentity).filter(Boolean);
-  return names.some((name) => name.includes(cited) || cited.includes(name.split(" ")[0] ?? name));
+  return (
+    citedNameAlignsWithClient(object.marca, client) ||
+    citedNameAlignsWithClient(object.produto, client)
+  );
+}
+
+export type LostQueryOccupant = { name: string; href: string | null };
+
+export type LostOccupantSpeech =
+  | { kind: "one"; name: string; href: string | null }
+  | { kind: "several" }
+  | { kind: "empty" };
+
+/**
+ * Spoken occupant on Conteúdo: one SKU in every loss → name it.
+ * Two SKUs → “outros produtos” — do not elect one. Twin: rint-app.
+ */
+export function lostOccupantSpeech(occupants: LostQueryOccupant[]): LostOccupantSpeech {
+  const first = occupants[0];
+  if (!first) return { kind: "empty" };
+  if (occupants.length === 1) {
+    return { kind: "one", name: first.name, href: first.href };
+  }
+  return { kind: "several" };
+}
+
+/**
+ * Who took each question the client lost — not the job crown.
+ * One SKU in every loss → one name. Two SKUs → keep both (speech does not elect).
+ * Twin: rint-app.
+ */
+export function occupantsFromLostQueries(
+  queries: Array<{
+    cliente_foi_citado?: boolean;
+    gemini_structured?: { objetos_citados?: CitedObjectLike[] };
+  }>,
+  client: ClientOfferIdentity,
+): LostQueryOccupant[] {
+  const seen = new Set<string>();
+  const offers: LostQueryOccupant[] = [];
+  for (const query of queries) {
+    if (query.cliente_foi_citado) continue;
+    for (const object of query.gemini_structured?.objetos_citados ?? []) {
+      if (isClientCitedObject(object, client, object.grounding_confirmed_client ?? false)) {
+        continue;
+      }
+      if (isClientProductElsewhereObject(object, client)) continue;
+      const name = formatCitedOfferLabel(object.marca, object.produto) || object.loja?.trim() || "";
+      if (!name) continue;
+      const key = compactIdentity(name);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      offers.push({ name, href: object.url?.trim() || null });
+      break;
+    }
+  }
+  return offers;
 }
 
 function modeLabel(counts: Map<string, { label: string; n: number }>): string | null {

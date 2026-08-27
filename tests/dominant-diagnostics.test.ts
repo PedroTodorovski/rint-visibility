@@ -832,6 +832,260 @@ describe("dominant triage", () => {
 
     expect(outcome.coherenceLevel).toBe("incoerente");
     expect(outcome.track).toBe("track_llm");
+    expect(outcome.coherenceIncident).toEqual({
+      kind: "price",
+      said: "R$ 99",
+      catalog: "R$ 500",
+    });
+  });
+
+  it("names a storefront brand incident when the cited name is not the catalog", () => {
+    const outcome = computeTriage({
+      skus: [{ id: "sku-1", shopify }],
+      queries: [
+        query(
+          {
+            cliente_foi_citado: true,
+            concorrente_citado_nome: null,
+            concorrente_citado_url: null,
+            atributos_mencionados_gemini: [],
+            preco_citado: 500,
+            nome_marca_citada: "Outra Marca",
+            produto_mencionado: "X",
+            objetos_citados: [
+              {
+                marca: "Outra Marca",
+                loja: null,
+                produto: "X",
+                url: "https://acme.example/products/hero",
+                preco: 500,
+                moeda: "BRL",
+                dimensoes: null,
+                qualidade: null,
+                prazo_entrega: null,
+                avaliacao: null,
+                imagem_url: null,
+                atributos: [],
+              },
+            ],
+          },
+          { cliente_foi_citado: true },
+        ),
+      ],
+    });
+
+    expect(outcome.coherenceLevel).toBe("incoerente");
+    expect(outcome.coherenceIncident).toEqual({
+      kind: "brand",
+      said: "Outra Marca",
+      catalog: "Acme",
+    });
+  });
+
+  it("does not treat a marketplace listing price as the client storefront", () => {
+    const outcome = computeTriage({
+      skus: [
+        {
+          id: "sku-1",
+          shopify: {
+            ...shopify,
+            name: "Multivitamínico Para Usuários de Caneta ou Bariátrico | 23 Nutrientes",
+            brand: "CompleteBari",
+            url: "https://completebari.com.br/products/multivitaminico-complete-bari-multi",
+            currentPrice: 129.9,
+          },
+        },
+      ],
+      queries: [
+        query(
+          {
+            cliente_foi_citado: true,
+            concorrente_citado_nome: "Mercado Livre",
+            concorrente_citado_url: null,
+            atributos_mencionados_gemini: [],
+            preco_citado: 71.01,
+            nome_marca_citada: null,
+            produto_mencionado: "Multivitamínico Beleza Saúde Body Bari Pós-Cirurgia Bariátrica",
+            objetos_citados: [
+              {
+                marca: null,
+                loja: "Mercado Livre",
+                produto: "Multivitamínico Beleza Saúde Body Bari Pós-Cirurgia Bariátrica",
+                url: null,
+                preco: 71.01,
+                moeda: "BRL",
+                dimensoes: null,
+                qualidade: null,
+                prazo_entrega: null,
+                avaliacao: null,
+                imagem_url: null,
+                atributos: [],
+              },
+            ],
+          },
+          { cliente_foi_citado: true },
+        ),
+      ],
+    });
+
+    expect(outcome.coherenceLevel).not.toBe("incoerente");
+    expect(outcome.coherenceIncident).toBeNull();
+  });
+
+  it("does not compare a reseller shelf price to the Shopify PDP", () => {
+    const outcome = computeTriage({
+      skus: [{ id: "sku-1", shopify }],
+      queries: [
+        query(
+          {
+            cliente_foi_citado: true,
+            concorrente_citado_nome: "Marketplace",
+            concorrente_citado_url: "https://marketplace.example/listing/123",
+            atributos_mencionados_gemini: [],
+            preco_citado: 50,
+            nome_marca_citada: "Acme",
+            produto_mencionado: "Hero Sofa",
+            objetos_citados: [
+              {
+                marca: "Acme",
+                loja: "Marketplace",
+                produto: "Hero Sofa",
+                url: "https://marketplace.example/listing/123",
+                preco: 50,
+                moeda: "BRL",
+                dimensoes: null,
+                qualidade: null,
+                prazo_entrega: null,
+                avaliacao: null,
+                imagem_url: null,
+                atributos: [],
+              },
+            ],
+          },
+          { cliente_foi_citado: true },
+        ),
+      ],
+    });
+
+    expect(outcome.coherenceLevel).not.toBe("incoerente");
+    expect(outcome.coherenceIncident).toBeNull();
+  });
+
+  it("does not treat Complete Bari vs CompleteBari as a brand incident", () => {
+    const outcome = computeTriage({
+      skus: [
+        {
+          id: "sku-1",
+          shopify: {
+            ...shopify,
+            name: "Multivitamínico Complete Bari Multi",
+            brand: "CompleteBari",
+            url: "https://completebari.com.br/products/multivitaminico-complete-bari-multi",
+            currentPrice: 129.9,
+          },
+        },
+      ],
+      queries: [
+        query(
+          {
+            cliente_foi_citado: true,
+            concorrente_citado_nome: null,
+            concorrente_citado_url: null,
+            atributos_mencionados_gemini: [],
+            preco_citado: 129.9,
+            nome_marca_citada: "Complete Bari",
+            produto_mencionado: "Multi",
+            objetos_citados: [
+              {
+                marca: "Complete Bari",
+                loja: "Complete Bari",
+                produto: "Multi",
+                url: "https://completebari.com.br/products/multivitaminico-complete-bari-multi",
+                preco: 129.9,
+                moeda: "BRL",
+                dimensoes: null,
+                qualidade: null,
+                prazo_entrega: null,
+                avaliacao: null,
+                imagem_url: null,
+                atributos: [],
+              },
+            ],
+          },
+          { cliente_foi_citado: true },
+        ),
+      ],
+    });
+
+    expect(outcome.coherenceLevel).not.toBe("incoerente");
+    expect(outcome.coherenceIncident).toBeNull();
+  });
+
+  it("lists occupants from lost queries, not the job crown", () => {
+    const outcome = computeTriage({
+      skus: [{ id: "sku-1", shopify }],
+      queries: [
+        query({
+          cliente_foi_citado: false,
+          concorrente_citado_nome: "Biostévi",
+          concorrente_citado_url: "https://drogaraia.com.br/biostevi",
+          atributos_mencionados_gemini: [],
+          preco_citado: 149.9,
+          nome_marca_citada: "Biostévi Nutrition",
+          produto_mencionado: "Biostévi",
+          objetos_citados: [
+            {
+              marca: "Biostévi Nutrition",
+              loja: "Droga Raia",
+              produto: "Biostévi",
+              url: "https://drogaraia.com.br/biostevi",
+              preco: 149.9,
+              moeda: "BRL",
+              dimensoes: null,
+              qualidade: null,
+              prazo_entrega: null,
+              avaliacao: null,
+              imagem_url: null,
+              atributos: [],
+            },
+          ],
+        }),
+        {
+          ...query({
+            cliente_foi_citado: false,
+            concorrente_citado_nome: "Centrum",
+            concorrente_citado_url: "https://beltnutrition.com.br/centrum",
+            atributos_mencionados_gemini: [],
+            preco_citado: 89,
+            nome_marca_citada: "Centrum",
+            produto_mencionado: "Centrum Bariátrico",
+            objetos_citados: [
+              {
+                marca: "Centrum",
+                loja: "Belt Nutrition",
+                produto: "Centrum Bariátrico",
+                url: "https://beltnutrition.com.br/centrum",
+                preco: 89,
+                moeda: "BRL",
+                dimensoes: null,
+                qualidade: null,
+                prazo_entrega: null,
+                avaliacao: null,
+                imagem_url: null,
+                atributos: [],
+              },
+            ],
+          }),
+          id: "q2",
+        },
+      ],
+    });
+
+    expect(outcome.checks.lost_occupants).toEqual([
+      { name: "Biostévi Nutrition", href: "https://drogaraia.com.br/biostevi" },
+      { name: "Centrum Bariátrico", href: "https://beltnutrition.com.br/centrum" },
+    ]);
+    expect(outcome.checks.lost_occupant_speech).toEqual({ kind: "several" });
   });
 
   it("does not fabricate incoherence from a name-only fuzzy match when grounding says this query did not cite the client", () => {
@@ -883,13 +1137,11 @@ describe("dominant triage", () => {
   it("trusts a minority execution's grounding over the query-level majority vote (ADR-003 multi-execution gap)", () => {
     // Pro-tier query (3 executions): 1 execution genuinely grounded the client, 2 did not —
     // the aggregate `cliente_foi_citado` is `false` (majority vote), but the merged
-    // `objetos_citados` entry for the client's own product is stamped
-    // `grounding_confirmed_client: true` (OR'd from the one confirming execution). The object
-    // has no host-matching `url` (Gemini's own `url` field is unreliable — exactly the
-    // real-world case this fix targets), so only the fuzzy marca/produto match plus the
-    // per-object grounding flag can pull it into the coherence check. The coherence check
-    // must use that per-object truth, not the query-level `false`, so a real price mismatch
-    // on the client's own listing still flips coherence to `incoerente`.
+    // `objetos_citados` entry is stamped `grounding_confirmed_client: true`. No storefront
+    // URL (Gemini's `url` field is often empty) — the object still enters the client set
+    // via marca/produto + the per-object flag. Price 3.1.1 does not run without the
+    // client's own host (a URL-less marketplace listing must not become “Falou R$ X na loja”).
+    // Brand 3.1.3 is storefront-only too — without the host, brand_matches stays null.
     const outcome = computeTriage({
       skus: [{ id: "sku-1", shopify }],
       queries: [
@@ -922,8 +1174,10 @@ describe("dominant triage", () => {
       ],
     });
 
-    expect(outcome.checks.comparisons).toMatchObject([{ price_matches: false }]);
-    expect(outcome.coherenceLevel).toBe("incoerente");
+    expect(outcome.checks.comparisons).toMatchObject([
+      { price_matches: null, brand_matches: null },
+    ]);
+    expect(outcome.coherenceLevel).toBe("coerente");
   });
 
   it("closes the same-query co-mention gap (ADR-003 residual gap): a grounding-confirmed query can still list a competitor object", () => {
